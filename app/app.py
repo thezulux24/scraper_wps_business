@@ -1390,6 +1390,8 @@ class App(ctk.CTk):
 
                 qr_png = None
                 selectors = [
+                    '[data-testid="link-device-qr-code"] canvas',
+                    'canvas[aria-label*="QR"]',
                     '[data-testid="qrcode"]',
                     '[data-testid="qrcode"] canvas',
                     'canvas[aria-label*="Scan"]',
@@ -1411,7 +1413,7 @@ class App(ctk.CTk):
                 dpr = 1
                 try:
                     rect = self.driver.execute_script("""
-                        var qr = document.querySelector('canvas[aria-label*="Scan"], div[data-ref] canvas, [data-testid="qrcode"], [data-testid="qrcode"] canvas');
+                        var qr = document.querySelector('[data-testid="link-device-qr-code"] canvas, canvas[aria-label*="QR"], canvas[aria-label*="Scan"], div[data-ref] canvas, [data-testid="qrcode"], [data-testid="qrcode"] canvas');
                         if (!qr) {
                             var all = document.querySelectorAll('img, canvas');
                             for (var el of all) {

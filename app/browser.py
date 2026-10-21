@@ -57,6 +57,16 @@ _NON_WIN_BINARIES = {
 }
 
 
+def _strip_headless_ua(driver):
+    """WhatsApp rechaza vincular navegadores cuyo user-agent dice "Headless"."""
+    try:
+        ua = driver.execute_script("return navigator.userAgent")
+        driver.execute_cdp_cmd("Network.setUserAgentOverride",
+                               {"userAgent": ua.replace("HeadlessChrome", "Chrome")})
+    except Exception as e:
+        logger.warning(f"No se pudo ajustar el user-agent: {e}")
+
+
 def _browser_path(name: str) -> str | None:
     """Devuelve la ruta del ejecutable si el navegador está instalado."""
     if sys.platform == "win32":
@@ -363,12 +373,15 @@ class BrowserManager:
                     opts.add_argument("--headless=new")
                     opts.add_argument("--window-size=1280,900")
                 try:
-                    return webdriver.Edge(options=opts), "Edge", None
+                    driver = webdriver.Edge(options=opts)
                 except Exception:
-                    if _WDM_OK:
-                        svc = EdgeService(EdgeChromiumDriverManager().install())
-                        return webdriver.Edge(service=svc, options=opts), "Edge", None
-                    raise
+                    if not _WDM_OK:
+                        raise
+                    svc = EdgeService(EdgeChromiumDriverManager().install())
+                    driver = webdriver.Edge(service=svc, options=opts)
+                if headless:
+                    _strip_headless_ua(driver)
+                return driver, "Edge", None
             except Exception as e:
                 return None, None, f"Edge: {e}"
 
