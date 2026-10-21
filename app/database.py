@@ -83,12 +83,23 @@ class Database:
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_orders_cliente ON orders(cliente)
             """)
+            # Pedidos eliminados por el usuario: la sincronización no los vuelve a importar
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS deleted_orders (
+                    id          TEXT PRIMARY KEY,
+                    deleted_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+                )
+            """)
             conn.commit()
         logger.info(f"Base de datos lista: {self.db_path}")
 
     # ── Escritura ─────────────────────────────────────────────────────────────
 
     def upsert_orders(self, orders: list[dict]) -> int:
+        inserted, updated = self._upsert(orders)
+        return inserted + updated
+
+    def _upsert(self, orders: list[dict]) -> tuple[int, int]:
         """
         Inserta o actualiza órdenes. Devuelve el número de registros afectados.
         
@@ -102,9 +113,9 @@ class Database:
         - Se loguea cuando se inserta/actualiza para auditoria
         """
         if not orders:
-            return 0
+            return 0, 0
 
-        affected = 0
+        inserted = updated = 0
         with self._connect() as conn:
             for o in orders:
                 # Validación básica
@@ -150,15 +161,21 @@ class Database:
                                 )
                                 monto = prev_monto
 
-                        logger.info(
-                            f"[DB] Actualizando orden: incoming_id={order_id} stored_id={existing_id} "
-                            f"cliente='{cliente}' monto={monto} estado={estado}")
-                        conn.execute("""
+                        # Sólo escribe si algo cambió, para no reescribir la BD en cada ciclo
+                        cur = conn.execute("""
                             UPDATE orders
-                            SET cliente = ?, producto = ?, monto = ?,
+                            SET cliente = ?, producto = ?, monto = ?, fecha = ?,
                                 estado = ?, whatsapp_order_id = ?, synced_at = datetime('now','localtime')
                             WHERE id = ?
-                        """, (cliente, producto, monto, estado, wa_order_id, existing_id))
+                              AND (cliente IS NOT ? OR producto IS NOT ? OR monto IS NOT ?
+                                   OR fecha IS NOT ? OR estado IS NOT ? OR whatsapp_order_id IS NOT ?)
+                        """, (cliente, producto, monto, fecha, estado, wa_order_id, existing_id,
+                              cliente, producto, monto, fecha, estado, wa_order_id))
+                        if cur.rowcount:
+                            updated += 1
+                            logger.info(
+                                f"[DB] Orden actualizada: id={existing_id} cliente='{cliente}' "
+                                f"monto={monto} fecha={fecha} estado={estado}")
                     else:
                         logger.info(
                             f"[DB] Insertando orden nueva: id={order_id} whatsapp_id={wa_order_id} "
@@ -167,8 +184,7 @@ class Database:
                             INSERT INTO orders (id, whatsapp_order_id, cliente, producto, monto, fecha, estado, synced_at)
                             VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
                         """, (order_id, wa_order_id, cliente, producto, monto, fecha, estado))
-
-                    affected += conn.execute("SELECT changes()").fetchone()[0]
+                        inserted += 1
                 except sqlite3.IntegrityError as exc:
                     logger.error(
                         "[DB] IntegrityError en upsert: id=%s whatsapp_id=%s cliente=%s error=%s",
@@ -180,8 +196,9 @@ class Database:
             
             conn.commit()
         
-        logger.info(f"[DB] upsert_orders completado: {affected} registro(s) afectado(s)")
-        return affected
+        if inserted or updated:
+            logger.info(f"[DB] upsert completado: +{inserted} nuevas, {updated} actualizadas")
+        return inserted, updated
     
     def _find_existing_order(self, order_id: str, wa_order_id: str | None) -> bool:
         """
@@ -315,36 +332,23 @@ class Database:
     def merge(self, new_orders: list[dict]) -> tuple[int, int]:
         """
         Sincroniza nuevas órdenes con la BD.
-        Devuelve (número_insertadas, número_actualizadas).
-        
-        Usa lógica inteligente:
-        - Si la orden tiene whatsapp_order_id, lo usa para deduplicar
-        - Calcula inserciones vs actualizaciones comparando antes/después
+        Devuelve (número_insertadas, número_actualizadas); sólo cuenta cambios reales.
+        Las órdenes que el usuario eliminó no se vuelven a importar.
         """
         if not new_orders:
             return 0, 0
-        
-        before_count = self.count()
-        
-        # Contar cuántas órdenes ya existían
-        existing_count = 0
+
         with self._connect() as conn:
-            for o in new_orders:
-                existing_id = self._find_existing_order_id(
-                    conn,
-                    o.get('id', ''),
-                    o.get('whatsapp_order_id'))
-                if existing_id is not None:
-                    existing_count += 1
-        
-        # Hacer upsert
-        self.upsert_orders(new_orders)
-        
-        after_count = self.count()
-        new_inserted = after_count - before_count
-        updated_count = existing_count
-        
-        logger.info(f"[Merge] Sincronización: +{new_inserted} nuevas, {updated_count} actualizadas")
+            deleted = {row[0] for row in conn.execute("SELECT id FROM deleted_orders")}
+        if deleted:
+            new_orders = [
+                o for o in new_orders
+                if o.get('id') not in deleted and o.get('whatsapp_order_id') not in deleted
+            ]
+
+        new_inserted, updated_count = self._upsert(new_orders)
+        if new_inserted or updated_count:
+            logger.info(f"[Merge] Sincronización: +{new_inserted} nuevas, {updated_count} actualizadas")
         return new_inserted, updated_count
 
     def delete_orders(self, order_ids: list[str]) -> int:
@@ -353,6 +357,12 @@ class Database:
             return 0
         with self._connect() as conn:
             placeholders = ",".join("?" for _ in order_ids)
+            rows = conn.execute(
+                f"SELECT id, whatsapp_order_id FROM orders WHERE id IN ({placeholders})", order_ids
+            ).fetchall()
+            conn.executemany(
+                "INSERT OR IGNORE INTO deleted_orders (id) VALUES (?)",
+                [(key,) for row in rows for key in row if key])
             cursor = conn.execute(f"DELETE FROM orders WHERE id IN ({placeholders})", order_ids)
             affected = cursor.rowcount
             conn.commit()
