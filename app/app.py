@@ -1602,23 +1602,14 @@ class App(ctk.CTk):
             new_c, upd_c = self._db.merge(new_orders)
             logger.info("[SYNC][DB] merge completado nuevas=%s actualizadas=%s", new_c, upd_c)
             
-            # Obtener estadísticas
-            stats = self._db.get_sync_stats()
-            diag = getattr(scraper, "last_run_diagnostics", {}) or {}
-            history = (diag.get("history") or {})
-            h_initial = int(history.get("new_orders_visible_initial", 0) or 0)
-            h_hist = int(history.get("historical_orders_found", 0) or 0)
-            h_stop = history.get("stop_reason", "n/a")
-            
-            # Recargar UI
-            all_orders = self._db.get_all()
-            self.after(0, lambda: self._load_orders(all_orders))
-            self.after(0, self._apply_filter)
-            
-            ts = datetime.now().strftime("%d/%m/%Y %H:%M")
-            msg = (f"✅ Sync exitoso: +{new_c} nuevas, {upd_c} actualizadas "
-                     f"· hist inicial: {h_initial}, hist cargado: {h_hist}, stop: {h_stop} "
-                     f"· ({stats['with_whatsapp_id']}/{stats['total']} con ID real) · {ts}")
+            ts = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+            if new_c or upd_c:
+                all_orders = self._db.get_all()
+                self.after(0, lambda: self._load_orders(all_orders))
+                self.after(0, self._apply_filter)
+                msg = f"✅ Sync: +{new_c} nuevas, {upd_c} actualizadas · {len(new_orders)} en WhatsApp · {ts}"
+            else:
+                msg = f"✅ Sin cambios · {len(new_orders)} pedidos en WhatsApp · {ts}"
             self.after(0, lambda: self._set_status_text(msg))
             
         except Exception as e:
