@@ -9,7 +9,7 @@ from datetime import date, datetime
 from collections import Counter
 from xml.sax.saxutils import escape
 
-_REPORTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reportes")
+from config import REPORTS_DIR as _REPORTS_DIR
 logger = logging.getLogger(__name__)
 
 try:

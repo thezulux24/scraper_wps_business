@@ -9,6 +9,8 @@ import time
 import logging
 import shutil
 
+from config import SESSION_BASE
+
 logger = logging.getLogger(__name__)
 
 # ── Imports opcionales por navegador ─────────────────────────────────────────
@@ -165,9 +167,7 @@ class BrowserManager:
     En Windows prioriza Chrome y Edge para evitar fallbacks inesperados a Firefox.
     """
 
-    SESSION_BASE = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "wsp_session")
-    )
+    SESSION_BASE = SESSION_BASE
 
     # Qué drivers de Selenium están disponibles
     _SDK_OK = property(lambda self: {

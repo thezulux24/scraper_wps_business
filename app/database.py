@@ -8,10 +8,9 @@ import logging
 from datetime import date
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from config import DB_PATH
 
-# La base de datos se guarda junto a los módulos de la app
-DB_PATH = Path(__file__).parent / "orders.db"
+logger = logging.getLogger(__name__)
 
 
 class Database:
