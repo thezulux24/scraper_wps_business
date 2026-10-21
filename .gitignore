@@ -20,3 +20,11 @@ app/reportes/*.pdf
 app/reportes/*.xlsx
 
 populate_test_data.py/
+
+# Build and IDE outputs
+dist/
+build/
+.pytest_cache/
+*.log
+.idea/
+.vscode/

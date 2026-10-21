@@ -264,7 +264,7 @@ class Exporter:
         doc    = SimpleDocTemplate(
             fname, pagesize=A4,
             leftMargin=1.5*cm, rightMargin=1.5*cm,
-            topMargin=5.5*cm,  bottomMargin=2*cm)
+            topMargin=5.5*cm,  bottomMargin=3.8*cm)
 
         styles = getSampleStyleSheet()
         title_style = ParagraphStyle(

@@ -12,6 +12,16 @@ def _env_bool(name: str, default: bool = False) -> bool:
         return default
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
+import sys
+def resource_path(relative_path):
+    """ Obtiene la ruta absoluta al recurso, funciona en dev y con PyInstaller """
+    try:
+        # PyInstaller crea una carpeta temporal y guarda la ruta en _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
+
 # ── Scraper: historial de pedidos ────────────────────────────────────────────
 # Máximo de rondas de scroll incremental para intentar cargar historial.
 HISTORY_MAX_ROUNDS = 20

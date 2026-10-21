@@ -131,6 +131,7 @@ class OrderScraper:
         y espera a que termine antes de continuar.
         """
         self._status("🔍 Verificando estado de sincronización profunda...")
+        return # [CORRECCIÓN] Saltamos esta verificación para que nunca se quede atascado
         try:
             from selenium.webdriver.common.keys import Keys
             from selenium.webdriver.common.action_chains import ActionChains
@@ -157,8 +158,8 @@ class OrderScraper:
                 
             if is_syncing:
                 logger.info("[SYNC] Sincronización detectada en Ajustes. Esperando a que termine...")
-                # Esperar indeterminadamente (hasta 2 horas)
-                while time.time() - start_time < 7200:
+                # Esperar como máximo 60 segundos para no bloquear la app
+                while time.time() - start_time < 60:
                     still_syncing = False
                     try:
                         els = self.driver.find_elements(By.XPATH, sync_xpath)
@@ -838,13 +839,61 @@ class OrderScraper:
 
     def _extract_rows_from_container(self, container, today: date) -> list[tuple[str, dict | date]]:
         rows_data = []
-        cur_date = today
         buttons = self._find_order_buttons(container)
         logger.info("[SCRAPER] Filas detectadas en contenedor: botones_candidatos=%s", len(buttons))
         if self._debug_visual:
             self._trace_step("scraper", f"botones candidatos={len(buttons)}")
 
+        script = """
+            const container = arguments[0];
+            const buttons = arguments[1];
+            const result = [];
+            
+            // Recolectar posibles encabezados de fecha
+            const elements = Array.from(container.querySelectorAll('div, span'));
+            const headerElements = [];
+            for (const el of elements) {
+                if (el.childElementCount === 0) {
+                    const txt = (el.innerText || el.textContent || "").trim();
+                    if (txt.length > 0 && txt.length < 30) {
+                        const isDate = /^HOY$/i.test(txt) || 
+                                     /^AYER$/i.test(txt) || 
+                                     /^\\d{1,2}[\\/\\-]\\d{1,2}[\\/\\-]\\d{2,4}$/.test(txt) || 
+                                     /^\\d{1,2}\\s+(de\\s+)?[a-zA-Záéíóúüñ]+\\s*(de\\s*\\d{4})?$/i.test(txt) ||
+                                     /^[a-zA-Záéíóúüñ]+\\s+\\d{1,2}$/i.test(txt);
+                        if (isDate) {
+                            headerElements.push({node: el, text: txt});
+                        }
+                    }
+                }
+            }
+            
+            for (const btn of buttons) {
+                let bestDateText = "";
+                for (const h of headerElements) {
+                    // Verificar si el encabezado está antes del botón en el documento
+                    if (btn.compareDocumentPosition(h.node) & Node.DOCUMENT_POSITION_PRECEDING) {
+                        bestDateText = h.text;
+                    } else {
+                        break; // Como headerElements está en orden, podemos detenernos
+                    }
+                }
+                result.push(bestDateText);
+            }
+            return result;
+        """
+        
+        try:
+            date_texts = self.driver.execute_script(script, container, buttons)
+        except Exception as e:
+            error_msg = str(e).split('\n')[0]
+            logger.debug(f"[SCRAPER] Error extrayendo fechas via JS (ignorado por recarga de DOM): {error_msg}")
+            date_texts = [""] * len(buttons)
+
         for order_idx, btn in enumerate(buttons):
+            dt_text = date_texts[order_idx] if order_idx < len(date_texts) else ""
+            cur_date = self._parse_date_header(dt_text, today) if dt_text else today
+            
             order = self._parse_order_row(btn, cur_date, order_idx)
             if order:
                 rows_data.append(('order', order))
@@ -912,8 +961,8 @@ class OrderScraper:
         cand = (candidate or '').strip().upper().lstrip('#')
         if not cand:
             return False, "vacío"
-        if len(cand) < 3:
-            return False, "demasiado corto"
+        if len(cand) < 8:
+            return False, "demasiado corto (mínimo 8 caracteres)"
 
         label_ctx = bool(re.search(
             r'(order\s*id|id\s*de\s*pedido|id\s*pedido|identificador|pedido\s*id|\bid\b)',
@@ -1267,9 +1316,7 @@ class OrderScraper:
                     except Exception:
                         pass
             
-            # Si después de intentar, detail_text está vacío, intentar un fallback global
-            if not detail_text:
-                detail_text = self._capture_order_detail_text(silent=True, strict=False)
+            # Ya no hacemos fallback a toda la página para evitar falsos positivos del chat
 
             # Intentar múltiples estrategias centradas en contexto de detalle e ID real.
             search_strategies = [
@@ -1442,7 +1489,7 @@ class OrderScraper:
         return has_request and not has_confirmed
 
     def _capture_order_detail_text(self, silent: bool = False, strict: bool = True) -> str:
-        """Captura texto bruto del panel de detalle del pedido para extraer el ID y como fallback."""
+        """Captura texto bruto del panel de detalle del pedido para extraer el ID."""
         selectors = [
             'div[aria-label="Detalles del pedido"]',
             'div[aria-label="Order details"]',
@@ -1467,20 +1514,6 @@ class OrderScraper:
             except Exception:
                 continue
         
-        if strict:
-            return ""
-
-        # Si no encontró los drawers específicos, intenta buscar cualquier contenedor de la derecha
-        try:
-            # WhatsApp divide la pantalla tipicamente usando elementos flex, buscamos el contenedor más a la derecha
-            body = self.driver.find_element(By.TAG_NAME, 'body')
-            text = ' '.join((body.text or '').split())
-            if text:
-                if not silent:
-                    logger.info("[Orden][detail] fuente=body preview='%s'", text[:160])
-                return text
-        except Exception:
-            pass
         return ""
 
     def _go_back(self):

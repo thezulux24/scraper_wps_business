@@ -27,7 +27,7 @@ Para el correcto funcionamiento de la aplicación, el equipo debe cumplir con lo
 
 ---
 
-## Guía de Instalación
+## Guía de Instalación para desarrollador
 
 Existen dos vías para instalar la aplicación en su entorno de trabajo:
 
@@ -46,7 +46,7 @@ Existen dos vías para instalar la aplicación en su entorno de trabajo:
 
 ---
 
-## Guía de Uso
+## Guía de Uso para desarrolladores
 
 Para ejecutar la aplicación, inicie el archivo `run.bat` o ejecute desde la consola el comando `python app/main.py`.
 

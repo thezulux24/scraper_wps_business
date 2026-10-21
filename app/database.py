@@ -155,10 +155,10 @@ class Database:
                             f"cliente='{cliente}' monto={monto} estado={estado}")
                         conn.execute("""
                             UPDATE orders
-                            SET cliente = ?, producto = ?, monto = ?, fecha = ?,
+                            SET cliente = ?, producto = ?, monto = ?,
                                 estado = ?, whatsapp_order_id = ?, synced_at = datetime('now','localtime')
                             WHERE id = ?
-                        """, (cliente, producto, monto, fecha, estado, wa_order_id, existing_id))
+                        """, (cliente, producto, monto, estado, wa_order_id, existing_id))
                     else:
                         logger.info(
                             f"[DB] Insertando orden nueva: id={order_id} whatsapp_id={wa_order_id} "
@@ -346,3 +346,15 @@ class Database:
         
         logger.info(f"[Merge] Sincronización: +{new_inserted} nuevas, {updated_count} actualizadas")
         return new_inserted, updated_count
+
+    def delete_orders(self, order_ids: list[str]) -> int:
+        """Elimina las órdenes especificadas por sus IDs de la base de datos."""
+        if not order_ids:
+            return 0
+        with self._connect() as conn:
+            placeholders = ",".join("?" for _ in order_ids)
+            cursor = conn.execute(f"DELETE FROM orders WHERE id IN ({placeholders})", order_ids)
+            affected = cursor.rowcount
+            conn.commit()
+        logger.info(f"[DB] delete_orders: {affected} registro(s) eliminado(s)")
+        return affected

@@ -228,8 +228,28 @@ class BrowserManager:
         )
 
     @staticmethod
+    def _kill_lingering_processes(profile_path: str):
+        if sys.platform != "win32":
+            return
+        import subprocess
+        profile_name = os.path.basename(profile_path)
+        logger.info(f"Limpiando procesos huérfanos para el perfil: {profile_name}")
+        for browser_exe in ("msedge.exe", "chrome.exe", "firefox.exe"):
+            try:
+                cmd_ps = f'powershell -Command "Get-CimInstance Win32_Process -Filter \\"Name = \'{browser_exe}\'\\" | Where-Object CommandLine -match \\"{profile_name}\\" | Stop-Process -Force"'
+                subprocess.run(cmd_ps, shell=True, capture_output=True, creationflags=0x08000000)
+            except Exception as e:
+                logger.debug(f"Error powershell kill {browser_exe}: {e}")
+            try:
+                cmd_wmic = f'wmic process where "name=\'{browser_exe}\' and commandline like \'%{profile_name}%\'" call terminate'
+                subprocess.run(cmd_wmic, shell=True, capture_output=True, creationflags=0x08000000)
+            except Exception as e2:
+                logger.debug(f"Error wmic kill {browser_exe}: {e2}")
+
+    @staticmethod
     def _clean_locks(profile_path: str):
         """Elimina archivos de bloqueo que impiden arrancar el navegador."""
+        BrowserManager._kill_lingering_processes(profile_path)
         for lock in ("SingletonLock", "SingletonCookie", "SingletonSocket",
                      "lockfile", ".parentlock", "DevToolsActivePort",
                      "CrashpadMetrics-active.pma"):

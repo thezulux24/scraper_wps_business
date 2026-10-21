@@ -14,6 +14,7 @@ import time
 import calendar
 
 import customtkinter as ctk
+from selenium.webdriver.common.by import By
 
 try:
     from PIL import Image, ImageTk
@@ -88,6 +89,12 @@ class App(ctk.CTk):
         self.title("Café Pa'l Monte")
         self.geometry("1260x820")
         self.minsize(1000, 660)
+        
+        try:
+            from config import resource_path
+            self.iconbitmap(resource_path("assets/app.ico"))
+        except Exception as e:
+            print("No se pudo cargar el icono:", e)
         self.orders        = []
         self.driver        = None
         self.connected     = False
@@ -475,6 +482,19 @@ class App(ctk.CTk):
                        font=ctk.CTkFont(size=11, weight="bold"), corner_radius=6,
                        command=self._filter_by_month).pack(side="left")
 
+        # Separador y botón de agregar pedido manual
+        tk.Frame(row, bg=BORDER, width=1).pack(side="left", fill="y", padx=24, pady=2)
+
+        action_sec = tk.Frame(row, bg=CARD_BG)
+        action_sec.pack(side="left", padx=(10, 0))
+        tk.Label(action_sec, text="Acciones", bg=CARD_BG, fg=TEXT_PRIMARY,
+                 font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 5))
+        
+        ctk.CTkButton(action_sec, text="➕ Agregar Pedido", width=130, height=32,
+                       fg_color=PRIMARY, hover_color=PRIMARY_HOVER,
+                       font=ctk.CTkFont(size=11, weight="bold"), corner_radius=6,
+                       command=self._open_add_order_modal).pack(side="left")
+
     def _build_table(self, parent):
         card = tk.Frame(parent, bg=CARD_BG,
                         highlightthickness=1, highlightbackground=BORDER)
@@ -523,6 +543,11 @@ class App(ctk.CTk):
         self.tree.configure(yscrollcommand=sb2.set)
         self.tree.grid(row=1, column=0, sticky="nsew")
         sb2.grid(row=1, column=1, sticky="ns")
+
+        # Enlazar eventos para edición y modificación de estado manual
+        self.tree.bind("<Button-3>", self._show_tree_context_menu)
+        self.tree.bind("<Button-2>", self._show_tree_context_menu)
+        self.tree.bind("<Double-1>", self._edit_selected_order)
 
     # ──────────────────────────────────────────────────────────────────────────
     # PAGINA: ANALITICA
@@ -1004,57 +1029,146 @@ class App(ctk.CTk):
         canvas.get_tk_widget().pack(fill="both", expand=True, padx=4, pady=(4, 10))
 
     def _draw_top_customers(self, orders: list):
-        """Top 10 clientes que más compran (por ingreso pagado)."""
+        """Top clientes que más compran (por ingreso pagado) con límite dinámico y opción de copiar listado."""
+        if not hasattr(self, "_top_customers_limit"):
+            self._top_customers_limit = tk.StringVar(value="10")
+        if not hasattr(self, "_hide_revenue_in_top"):
+            self._hide_revenue_in_top = tk.BooleanVar(value=False)
+
+        try:
+            limit = int(self._top_customers_limit.get())
+        except ValueError:
+            limit = 10
+
         self._clear_frame(self._chart_customers)
+        
+        # Ajustar altura del contenedor dinámicamente según el límite
+        chart_height = 200 + limit * 20
+        self._chart_customers.config(height=chart_height)
+
         rev_cli = defaultdict(lambda: {"revenue": 0.0, "orders": 0})
         for o in orders:
             if o.get("estado") in PAID_STATES:
                 rev_cli[o["cliente"]]["revenue"] += o["monto"]
                 rev_cli[o["cliente"]]["orders"] += 1
-        top10 = sorted(rev_cli.items(), key=lambda x: x[1]["revenue"], reverse=True)[:10]
+        top_list = sorted(rev_cli.items(), key=lambda x: x[1]["revenue"], reverse=True)[:limit]
 
         hdr = tk.Frame(self._chart_customers, bg=CARD_BG)
         hdr.pack(fill="x", padx=16, pady=(14, 0))
-        tk.Label(hdr, text="Top 10 clientes por ingreso",
+        
+        tk.Label(hdr, text=f"Top {limit} clientes por ingreso",
                  bg=CARD_BG, fg=TEXT_TITLE,
                  font=("Segoe UI", 12, "bold")).pack(side="left")
 
-        if not top10:
+        if not top_list:
             tk.Label(self._chart_customers, text="Sin datos",
                      bg=CARD_BG, fg=TEXT_MUTED, font=("Segoe UI", 11)).pack(expand=True)
             return
 
-        names = [n[:24] + "..." if len(n) > 24 else n for n, _ in top10]
-        values = [d["revenue"] for _, d in top10]
-        order_counts = [d["orders"] for _, d in top10]
+        # Botón para copiar el listado (sin montos)
+        btn_copy = ctk.CTkButton(
+            hdr, text="📋 Copiar Listado", width=110, height=28,
+            fg_color=PRIMARY, hover_color=PRIMARY_HOVER,
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(size=11, weight="bold"), corner_radius=6,
+            command=lambda: self._copy_top_customers_list(top_list)
+        )
+        btn_copy.pack(side="right", padx=(8, 0))
+
+        # Checkbox para ocultar dinero en el gráfico
+        chk_hide = ctk.CTkCheckBox(
+            hdr, text="Ocultar montos", font=ctk.CTkFont(size=11),
+            variable=self._hide_revenue_in_top,
+            fg_color=PRIMARY, hover_color=PRIMARY_HOVER,
+            text_color=TEXT_PRIMARY, border_color=BORDER,
+            width=110, height=28,
+            command=self._on_top_limit_changed
+        )
+        chk_hide.pack(side="right", padx=(8, 0))
+
+        # Selector del Top
+        cb_limit = ctk.CTkComboBox(
+            hdr, values=["5", "10", "15", "20"],
+            variable=self._top_customers_limit,
+            width=65, height=28, font=ctk.CTkFont(size=11),
+            fg_color=CONTENT_BG, border_color=BORDER,
+            button_color="#CBD5E1", button_hover_color=BORDER,
+            dropdown_fg_color=CARD_BG, dropdown_text_color=TEXT_PRIMARY,
+            dropdown_hover_color="#EEF2FF", text_color=TEXT_PRIMARY,
+            corner_radius=6, state="readonly",
+            command=lambda val: self._on_top_limit_changed()
+        )
+        cb_limit.pack(side="right", padx=(8, 0))
+        
+        tk.Label(hdr, text="Mostrar top:", bg=CARD_BG, fg=TEXT_SECONDARY,
+                 font=("Segoe UI", 10)).pack(side="right", padx=(0, 4))
+
+        names = [n[:24] + "..." if len(n) > 24 else n for n, _ in top_list]
+        values = [d["revenue"] for _, d in top_list]
+        order_counts = [d["orders"] for _, d in top_list]
         max_v = max(values) if values else 1
+        hide_money = self._hide_revenue_in_top.get()
 
         fig = Figure(facecolor=CARD_BG)
-        fig.subplots_adjust(left=0.22, right=0.93, top=0.92, bottom=0.08)
+        bottom_margin = 0.08 if limit > 10 else 0.12
+        fig.subplots_adjust(left=0.22, right=0.93, top=0.92, bottom=bottom_margin)
         ax = fig.add_subplot(111)
         gradient_colors = ["#4F46E5", "#6366F1", "#818CF8", "#A5B4FC", "#C7D2FE",
                            "#06B6D4", "#14B8A6", "#10B981", "#34D399", "#6EE7B7"]
+        bar_colors = [gradient_colors[i % len(gradient_colors)] for i in range(len(names))]
         bars = ax.barh(range(len(names)), values, height=0.55, zorder=2,
-                       color=gradient_colors[:len(names)], alpha=0.88)
+                       color=bar_colors, alpha=0.88)
         ax.set_yticks(range(len(names)))
         ax.set_yticklabels(names, fontsize=9, color=TEXT_PRIMARY)
         ax.invert_yaxis()
-        ax.xaxis.set_major_formatter(
-            mticker.FuncFormatter(lambda x, _: f"${x:,.0f}"))
-        ax.tick_params(axis="x", labelsize=9, labelcolor=TEXT_SECONDARY)
+
+        if hide_money:
+            ax.xaxis.set_major_formatter(mticker.NullFormatter())
+            ax.tick_params(axis="x", labelbottom=False)
+        else:
+            ax.xaxis.set_major_formatter(
+                mticker.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+            ax.tick_params(axis="x", labelsize=9, labelcolor=TEXT_SECONDARY)
+
         ax.set_facecolor(CARD_BG)
         for spine in ["top", "right", "bottom"]:
             ax.spines[spine].set_visible(False)
         ax.spines["left"].set_color(BORDER)
         ax.xaxis.grid(True, color=BORDER, linewidth=0.8, zorder=0)
         ax.set_axisbelow(True)
+
         for bar, val, oc in zip(bars, values, order_counts):
+            if hide_money:
+                lbl_text = f"({oc} ord.)"
+            else:
+                lbl_text = f"${val:,.0f} ({oc} ord.)"
             ax.text(val + max_v * 0.01, bar.get_y() + bar.get_height() / 2,
-                    f"${val:,.0f} ({oc} ord.)", va="center",
+                    lbl_text, va="center",
                     fontsize=8, color=TEXT_PRIMARY, fontweight="bold")
+
         canvas = FigureCanvasTkAgg(fig, master=self._chart_customers)
         canvas.draw()
         canvas.get_tk_widget().pack(fill="both", expand=True, padx=4, pady=(4, 10))
+
+    def _on_top_limit_changed(self, event=None):
+        if not MATPLOTLIB_OK:
+            return
+        orders = self._get_analytics_orders()
+        self._draw_top_customers(orders)
+
+    def _copy_top_customers_list(self, top_list):
+        if not top_list:
+            messagebox.showwarning("Copiar", "No hay datos para copiar.")
+            return
+        lines = []
+        for i, (name, d) in enumerate(top_list, 1):
+            lines.append(f"{i}. {name}")
+        text_list = "\n".join(lines)
+        
+        self.clipboard_clear()
+        self.clipboard_append(text_list)
+        self.update()
+        messagebox.showinfo("Copiado", f"Se copió el listado de los mejores {len(top_list)} clientes al portapapeles (sin importes).")
 
     def _show_no_matplotlib_msg(self):
         for frame in [self._chart_monthly, self._chart_annual, self._chart_cancelled,
@@ -1111,6 +1225,14 @@ class App(ctk.CTk):
                 driver.quit()
             except Exception:
                 pass
+        
+        # Asegurar que no queden procesos zombies del navegador
+        try:
+            from browser import BrowserManager
+            for name in ("edge", "chrome", "firefox"):
+                BrowserManager._kill_lingering_processes(f"{BrowserManager.SESSION_BASE}_{name}")
+        except Exception:
+            pass
 
     def _is_whatsapp_linked(self) -> bool:
         with self._driver_lock:
@@ -1497,9 +1619,15 @@ class App(ctk.CTk):
             self.after(0, lambda: self._set_status_text(msg))
             
         except Exception as e:
-            self.after(0, lambda: messagebox.showerror("Error de sync", str(e)))
             import logging
             logging.exception("Error en _do_sync:")
+            error_str = str(e).lower()
+            if "invalid session id" in error_str or "chrome not reachable" in error_str or "disconnected" in error_str or "session deleted" in error_str:
+                # Falla silenciosa si la sesión del navegador se cerró
+                pass
+            else:
+                msg = "Ocurrió un error inesperado al sincronizar. Consulta los logs para más detalles."
+                self.after(0, lambda m=msg: messagebox.showerror("Error de Sincronización", m))
         finally:
             if not self.is_auto_sync:
                 self.after(0, lambda: self.btn_sync.configure(
@@ -1557,9 +1685,17 @@ class App(ctk.CTk):
             self.after(0, lambda: self._on_connected(0, 0))
             self.after(0, self._toggle_auto_sync)
         except Exception as e:
+            import logging
+            logging.exception("Error en _open_whatsapp:")
             self.after(0, self._hide_qr_overlay)
             self._dispose_driver()
-            self.after(0, lambda: messagebox.showerror("Error de conexion", str(e)))
+            error_str = str(e).lower()
+            if "invalid session id" in error_str or "chrome not reachable" in error_str or "disconnected" in error_str or "session deleted" in error_str:
+                # Falla silenciosa
+                pass
+            else:
+                msg = "No se pudo conectar a WhatsApp. Consulta los logs para más detalles."
+                self.after(0, lambda m=msg: messagebox.showerror("Error de Conexión", m))
             self.after(0, self._reset_connect_btn)
 
     def _on_session_linked(self):
@@ -1675,6 +1811,332 @@ class App(ctk.CTk):
             ctk.CTkButton(top, text="Aceptar", height=30, command=_pick,
                           fg_color=PRIMARY, corner_radius=6,
                           font=ctk.CTkFont(size=11, weight="bold")).pack(pady=(0, 10))
+
+    def _show_tree_context_menu(self, event):
+        item_id = self.tree.identify_row(event.y)
+        if not item_id:
+            return
+        
+        self.tree.selection_set(item_id)
+        
+        menu = tk.Menu(self, tearoff=0, bg=CARD_BG, fg=TEXT_PRIMARY, font=("Segoe UI", 10))
+        state_menu = tk.Menu(menu, tearoff=0, bg=CARD_BG, fg=TEXT_PRIMARY, font=("Segoe UI", 10))
+        
+        states = ["Completado", "Pendiente", "Cancelado", "Enviado", "Envío en preparación", "Entregado"]
+        for st in states:
+            state_menu.add_command(
+                label=st,
+                command=lambda s=st: self._change_selected_order_state(s)
+            )
+            
+        menu.add_cascade(label="Cambiar Estado a", menu=state_menu)
+        menu.add_separator()
+        menu.add_command(label="Editar Pedido...", command=self._edit_selected_order)
+        menu.add_command(label="❌ Eliminar Pedido(s)", command=self._delete_selected_orders)
+        
+        menu.post(event.x_root, event.y_root)
+
+    def _change_selected_order_state(self, new_state):
+        selected = self.tree.selection()
+        if not selected:
+            return
+        
+        affected_count = 0
+        for item_id in selected:
+            values = self.tree.item(item_id, "values")
+            if not values:
+                continue
+            order_id = values[0]
+            
+            order_dict = next((o for o in self.orders if o["id"] == order_id), None)
+            if order_dict:
+                order_dict["estado"] = new_state
+                self._db.upsert_orders([order_dict])
+                affected_count += 1
+                
+        if affected_count > 0:
+            self.orders = self._db.get_all()
+            self._apply_filter()
+            messagebox.showinfo("Éxito", f"Se actualizó el estado a '{new_state}' de {affected_count} pedido(s).")
+
+    def _edit_selected_order(self, event=None):
+        selected = self.tree.selection()
+        if not selected:
+            return
+        item_id = selected[0]
+        values = self.tree.item(item_id, "values")
+        if not values:
+            return
+        
+        order_id, cliente, producto, fecha, monto_str, estado = values
+        
+        try:
+            monto = float(monto_str.replace("$", "").replace(",", "").strip())
+        except ValueError:
+            monto = 0.0
+            
+        self._open_order_modal(edit_mode=True, order_data={
+            "id": order_id,
+            "cliente": cliente,
+            "producto": producto,
+            "fecha": fecha,
+            "monto": monto,
+            "estado": estado
+        })
+
+    def _delete_selected_orders(self):
+        selected = self.tree.selection()
+        if not selected:
+            return
+        
+        # Obtener IDs
+        order_ids = []
+        for item_id in selected:
+            values = self.tree.item(item_id, "values")
+            if values:
+                order_ids.append(values[0])
+                
+        if not order_ids:
+            return
+            
+        # Confirmar
+        if not messagebox.askyesno(
+            "Confirmar eliminación",
+            f"¿Estás seguro de que deseas eliminar {len(order_ids)} pedido(s)?\nEsta acción no se puede deshacer."
+        ):
+            return
+            
+        # Eliminar
+        deleted = self._db.delete_orders(order_ids)
+        if deleted > 0:
+            self.orders = self._db.get_all()
+            self._apply_filter()
+            messagebox.showinfo("Éxito", f"Se eliminaron {deleted} pedido(s) correctamente.")
+
+    def _open_add_order_modal(self):
+        self._open_order_modal(edit_mode=False)
+
+    def _open_order_modal(self, edit_mode=False, order_data=None):
+        top = tk.Toplevel(self)
+        top.title("Editar Pedido" if edit_mode else "Agregar Pedido Manual")
+        top.geometry("480x480")
+        top.resizable(False, True)
+        top.transient(self)
+        top.grab_set()
+        top.configure(bg=CARD_BG)
+        
+        top.update_idletasks()
+        w = top.winfo_width()
+        h = top.winfo_height()
+        extra_x = (self.winfo_width() - w) // 2
+        extra_y = (self.winfo_height() - h) // 2
+        top.geometry(f"+{self.winfo_rootx() + extra_x}+{self.winfo_rooty() + extra_y}")
+
+        title_text = "Editar Pedido" if edit_mode else "Nuevo Pedido Manual"
+        ctk.CTkLabel(top, text=title_text, font=ctk.CTkFont(size=18, weight="bold"),
+                     text_color=TEXT_TITLE).pack(side="top", pady=(15, 10))
+
+        actions = ctk.CTkFrame(top, fg_color="transparent")
+        actions.pack(side="bottom", fill="x", pady=15, padx=28)
+
+        form = ctk.CTkScrollableFrame(top, fg_color="transparent")
+        form.pack(side="top", padx=15, fill="both", expand=True)
+
+        ctk.CTkLabel(form, text="ID de Pedido:", font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=TEXT_SECONDARY).pack(anchor="w", pady=(8, 2))
+        
+        id_var = tk.StringVar(value=order_data["id"] if edit_mode else "")
+        entry_id = ctk.CTkEntry(form, textvariable=id_var, font=ctk.CTkFont(size=12),
+                                 fg_color=CONTENT_BG, border_color=BORDER, text_color=TEXT_PRIMARY,
+                                 corner_radius=6, height=32, state="readonly" if edit_mode else "normal")
+        entry_id.pack(fill="x")
+
+        ctk.CTkLabel(form, text="Cliente:", font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=TEXT_SECONDARY).pack(anchor="w", pady=(8, 2))
+        client_var = tk.StringVar(value=order_data["cliente"] if edit_mode else "")
+        entry_client = ctk.CTkEntry(form, textvariable=client_var, font=ctk.CTkFont(size=12),
+                                     fg_color=CONTENT_BG, border_color=BORDER, text_color=TEXT_PRIMARY,
+                                     corner_radius=6, height=32)
+        entry_client.pack(fill="x")
+
+        ctk.CTkLabel(form, text="Producto(s):", font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=TEXT_SECONDARY).pack(anchor="w", pady=(8, 2))
+        prod_var = tk.StringVar(value=order_data["producto"] if edit_mode else "")
+        entry_prod = ctk.CTkEntry(form, textvariable=prod_var, font=ctk.CTkFont(size=12),
+                                   fg_color=CONTENT_BG, border_color=BORDER, text_color=TEXT_PRIMARY,
+                                   corner_radius=6, height=32)
+        entry_prod.pack(fill="x")
+
+        row_mf = ctk.CTkFrame(form, fg_color="transparent")
+        row_mf.pack(fill="x", pady=(8, 2))
+        row_mf.grid_columnconfigure(0, weight=1)
+        row_mf.grid_columnconfigure(1, weight=1)
+
+        col_m = ctk.CTkFrame(row_mf, fg_color="transparent")
+        col_m.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        ctk.CTkLabel(col_m, text="Monto ($):", font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=TEXT_SECONDARY).pack(anchor="w")
+        monto_var = tk.StringVar(value=f"{order_data['monto']:.2f}" if edit_mode else "0.00")
+        entry_monto = ctk.CTkEntry(col_m, textvariable=monto_var, font=ctk.CTkFont(size=12),
+                                    fg_color=CONTENT_BG, border_color=BORDER, text_color=TEXT_PRIMARY,
+                                    corner_radius=6, height=32)
+        entry_monto.pack(fill="x")
+
+        col_f = ctk.CTkFrame(row_mf, fg_color="transparent")
+        col_f.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        ctk.CTkLabel(col_f, text="Fecha (Calendario):", font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=TEXT_SECONDARY).pack(anchor="w")
+        
+        date_var = tk.StringVar(value=order_data["fecha"] if edit_mode else date.today().isoformat())
+        
+        btn_date = ctk.CTkButton(
+            col_f, text=date_var.get(),
+            fg_color=CONTENT_BG, hover_color=BORDER,
+            text_color=TEXT_PRIMARY, border_width=1, border_color=BORDER,
+            font=ctk.CTkFont(size=11), corner_radius=6, height=32,
+            command=lambda: self._open_modal_date_picker(btn_date, date_var)
+        )
+        btn_date.pack(fill="x")
+
+        ctk.CTkLabel(form, text="Estado:", font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=TEXT_SECONDARY).pack(anchor="w", pady=(8, 2))
+        
+        states = ["Completado", "Pendiente", "Cancelado", "Enviado", "Envío en preparación", "Entregado"]
+        estado_var = tk.StringVar(value=order_data["estado"] if edit_mode else "Pendiente")
+        cb_estado = ctk.CTkComboBox(
+            form, values=states, variable=estado_var,
+            height=32, font=ctk.CTkFont(size=11),
+            fg_color=CONTENT_BG, border_color=BORDER,
+            button_color="#CBD5E1", button_hover_color=BORDER,
+            dropdown_fg_color=CARD_BG, dropdown_text_color=TEXT_PRIMARY,
+            dropdown_hover_color="#EEF2FF", text_color=TEXT_PRIMARY,
+            corner_radius=6, state="readonly"
+        )
+        cb_estado.pack(fill="x", pady=(0, 10))
+
+        ctk.CTkButton(actions, text="Cancelar", fg_color="transparent", hover_color=CONTENT_BG,
+                       text_color=TEXT_SECONDARY, border_width=1, border_color=BORDER,
+                       height=36, corner_radius=8, width=100, command=top.destroy).pack(side="left")
+
+        def _save():
+            oid = id_var.get().strip()
+            cli = client_var.get().strip()
+            prod = prod_var.get().strip()
+            fec = date_var.get().strip()
+            est = estado_var.get()
+            
+            if not oid:
+                messagebox.showerror("Error", "El ID no puede estar vacío.", parent=top)
+                return
+            if not cli:
+                messagebox.showerror("Error", "El Cliente no puede estar vacío.", parent=top)
+                return
+            if not prod:
+                messagebox.showerror("Error", "El Producto no puede estar vacío.", parent=top)
+                return
+            
+            try:
+                mon = float(monto_var.get().replace(",", "").strip())
+                if mon < 0:
+                    raise ValueError
+            except ValueError:
+                messagebox.showerror("Error", "Monto inválido. Ingrese un número positivo.", parent=top)
+                return
+                
+            try:
+                datetime.strptime(fec, "%Y-%m-%d")
+            except ValueError:
+                messagebox.showerror("Error", "Fecha inválida. Debe ser YYYY-MM-DD.", parent=top)
+                return
+
+            if not edit_mode:
+                existing = self._db.get_by_id(oid)
+                if existing:
+                    messagebox.showerror("Error", f"Ya existe un pedido con el ID '{oid}'.", parent=top)
+                    return
+
+            order_dict = {
+                "id": oid,
+                "whatsapp_order_id": order_data.get("whatsapp_order_id") if edit_mode else None,
+                "cliente": cli,
+                "producto": prod,
+                "monto": mon,
+                "fecha": fec,
+                "estado": est
+            }
+            
+            self._db.upsert_orders([order_dict])
+            
+            self.orders = self._db.get_all()
+            self._apply_filter()
+            
+            act = "actualizado" if edit_mode else "creado"
+            messagebox.showinfo("Éxito", f"Pedido {act} correctamente.", parent=self)
+            top.destroy()
+
+        ctk.CTkButton(actions, text="Guardar", fg_color=PRIMARY, hover_color=PRIMARY_HOVER,
+                       text_color="#FFFFFF", font=ctk.CTkFont(size=12, weight="bold"),
+                       height=36, corner_radius=8, width=120, command=_save).pack(side="right")
+
+    def _open_modal_date_picker(self, btn, date_var):
+        try:
+            init_date = date.fromisoformat(date_var.get())
+        except ValueError:
+            init_date = date.today()
+
+        top = tk.Toplevel(self)
+        top.overrideredirect(True)
+        top.grab_set()
+
+        top.update_idletasks()
+        bx = btn.winfo_rootx()
+        by = btn.winfo_rooty() + btn.winfo_height() + 2
+        top.geometry(f"+{bx}+{by}")
+
+        if CAL_OK:
+            from tkcalendar import Calendar
+            cal = Calendar(
+                top, selectmode="day", date_pattern="y-mm-dd",
+                year=init_date.year, month=init_date.month, day=init_date.day,
+                background=SIDEBAR_BG, foreground="white",
+                headersbackground=SIDEBAR_BG, headersforeground="white",
+                selectbackground=PRIMARY, selectforeground="white",
+                normalbackground=CARD_BG, normalforeground=TEXT_PRIMARY,
+                weekendbackground="#F8FAFC", weekendforeground=TEXT_PRIMARY,
+                othermonthforeground=TEXT_MUTED, othermonthbackground=CARD_BG,
+                bordercolor=BORDER,
+            )
+            cal.pack(padx=8, pady=8)
+
+            def _pick():
+                picked = cal.get_date()
+                date_var.set(picked)
+                btn.configure(text=picked)
+                top.destroy()
+
+            ctk.CTkButton(top, text="Seleccionar", height=30,
+                          fg_color=PRIMARY, hover_color=SIDEBAR_BG,
+                          font=ctk.CTkFont(size=11, weight="bold"),
+                          corner_radius=6, command=_pick).pack(pady=(0, 8))
+        else:
+            var = tk.StringVar(value=init_date.isoformat())
+            ctk.CTkEntry(top, textvariable=var, width=130,
+                         font=ctk.CTkFont(size=11)).pack(padx=12, pady=12)
+
+            def _pick():
+                picked = var.get().strip()
+                date_var.set(picked)
+                btn.configure(text=picked)
+                top.destroy()
+
+            ctk.CTkButton(top, text="Aceptar", height=30, command=_pick,
+                          fg_color=PRIMARY, corner_radius=6,
+                          font=ctk.CTkFont(size=11, weight="bold")).pack(pady=(0, 10))
+
+    def _generate_random_id(self, length=11) -> str:
+        import string, random
+        chars = string.ascii_uppercase + string.digits
+        return ''.join(random.choice(chars) for _ in range(length))
 
     def _get_date_str(self, entry) -> str:
         """Retorna la fecha del widget como string YYYY-MM-DD."""

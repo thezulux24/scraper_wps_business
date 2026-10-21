@@ -1,0 +1,89 @@
+cafe pal monte gestion
+Autores: Brayan Zuluaga, Jhon Mejias, Juan Collazos, Joshua Mendez
+Pontificia Universidad Javeriana Cali
+Manual de usuario
+
+Introduccion (escribir IA)
+
+Instalacion:
+la app se presenta en un archivo comprimido llamado "CafePalMonte", el usuario debe descomprimirlo en una carpeta de su preferencia, se descomprime haciendo click derecho en el archivo y seleccionando "extraer todo".
+
+al descomprimir se abrira una carpeta con el nombre "CafePalMonte", dentro de la carpeta se encuentra el archivo "CafePalMonte.exe", el usuario debe ejecutar este archivo para iniciar la aplicacion. 
+hay una carpeta llama "_internal", esa carpeta contiene los archivos necesarios para que la aplicacion funcione, el usuario no debe modificar esta carpeta.
+
+uso de la app:
+
+al ejecutarse la app, la sesion de WA Businnes no estará iniciada, por lo cual deberá hacer click en "Conectar Whatsapp", en la esquina inferior izquiera, asi como lo miestra la siguiente imagen:
+[image1.png]
+
+al dar click se abrirá una ventana donde se mostrará el codigo QR para iniciar sesion en WA Bussines, deberá usar su telefono movil el cual tenga como dispositivo principal de WA Bussiness, en la configuracion debe buscar la opcion de "dispositivos vinculados", al entrar en esa opcion debe hacer click en "vincular un dispositivo", el cual le permitira escanear el codigo QR que se muestra en la ventana de la app.
+la ventana de la app se ve asi
+[image2.png]
+
+al estar ya conectado con la seccion se verá una imagen de este tipo:
+[image3.png]
+ahi se puede apreciar 3 botones,  "sincronizacion manual": sirve para sincroinzar de manera manual una sola pasada de los pedidos
+"sincronizacion automatica": es el modo por defecto, mientras la app esté en funcionamiento se encontrará sincronizando pedidos de manera automatica
+"cerrar sesion": cierra la sesion de WA Bussines (TENER MUCHO CUIDADO CON ESTA OPCION, SI CIERRA SESION, PERDERÁ EL REGISTRO EN WA BUSSINES DE LOS PRODUCTOS ANTERIORES, LO MEJOR ES CERRARLA Y ABRIR NUEVAMENTE, Y HACERLO UNA VEZ A LA SEMANA PARA EVITAR SOBRECARGAS EN EL SISTEMA.)
+
+MODULOS DE LA APP:
+
+Panel:
+[image4.png]
+
+como se observca en la imagen, el panel permite observar informacion relevante de la operacion, comoel total facturado y KPIs como ordenes totales, ordenes pagadas, ordenes pendientes y ordenes canceladas.
+
+Abajo de las KPIs se encuentra filtros por periodo, de esta manera puede filtrar por conveniencia la ihformacion de los pedidos, los filtros son por fecha
+
+[image5.png]
+
+al lado de los filtros hay una opcion llamada "Agregar Pedido", esta opcion permite agregar un pedido de manera manual, esto es util en casos de que por alguna razon no se haya registrado un pedido, se debe hacer click en "Agregar Pedido", se abrirá una ventana donde se podrá agregar el pedido, como se muestra en la siguiente imagen:
+[image6.png]
+al dar click en ese boton se abrirá un formulario donde se podran llenar los campos correspondientes a un pedido:
+[image7.png]
+al llenarlo se creará un nuevo pedido, esta opocion es en caso de que no alcanzara a sincronizarse el pedido en un cierre de sesion
+
+
+al hacer click derecho sobre un pedido, se abrirá una opcion que nos permitirá tanto editar la informacion del pedido, como cambiar el estado del pedido o en su defecto eliminar el pedido
+[image8.png]
+
+
+Analitica:
+
+en este modulo tendremos toda la parte relevante al analisis de la operacion.
+se encuentran graficos de:
+ventas mensuales
+ventas anuales
+ordenes canceladas por mes
+distribucion por estado
+top 5 productos por ingreso
+Top de clientes
+
+[image9.png]
+[image10.png]
+[image11.png]
+
+la app permite filtrar por año y meses:
+[image12.png]
+
+tambien se pueden repoortar estos reportes a PDF y Excel tal como se ve en la imagen:
+[image13.png]
+
+Reportes:
+
+La seccion de reportes nos permite ver los distintos reportes generados durante todo el uso, tambien tenemos la opcion de generar rapidamente reportes con las opciones des:
+ultimo mes, ultimo trimestre, lo que va del año y toda la operacion
+
+[image14.png]
+
+
+La mejor manera de generar reportes exactos es desde panel, realizando el filtro y luego generando el reporte.
+
+
+Solucion a problemas:
+
+en caso de tener problemas con el inicio de sesion, borrar la carpeta llamada "wsp_session_edge", esta carpeta contiene la sesion de WA Bussines
+en caso de borrarla debera iniciar sesion de manera inmediata.
+
+(agrega otras soluciones a problemas)
+
