@@ -106,6 +106,7 @@ class App(ctk.CTk):
         self._browser  = BrowserManager()
         self._exporter = Exporter()
         self._db       = Database()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._check_deps()
         self._build_ui()
         saved = self._db.get_all()
@@ -1741,6 +1742,14 @@ class App(ctk.CTk):
         self.btn_sync_auto.pack_forget()
         self.btn_connect.pack(fill="x", pady=(0, 6))
         self._reset_connect_btn()
+
+    def _on_close(self):
+        """Detiene la sincronización y cierra el navegador para no dejar procesos huérfanos."""
+        self.is_auto_sync = False
+        self.connected = False
+        self.withdraw()
+        self._dispose_driver()
+        self.destroy()
 
     def _reset_connect_btn(self):
         self.btn_connect.configure(state="normal", text="Conectar WhatsApp")
