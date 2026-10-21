@@ -4,6 +4,7 @@
 """Navega WhatsApp Business Web y extrae las órdenes de la sección Orders."""
 
 import re
+import json
 import time
 import logging
 import hashlib
@@ -56,6 +57,65 @@ ESTADO_MAP = {
     'preparing to ship':           'Envío en preparación',
 }
 
+# Lee los pedidos directamente de la IndexedDB de WhatsApp Web (model-storage).
+# Cada pedido es un mensaje interactive/native_flow "order_details"; los cambios
+# de estado llegan como mensajes "order_status" con el mismo reference_id.
+_IDB_ORDERS_JS = r"""
+const done = arguments[arguments.length - 1];
+(async () => {
+  try {
+    const db = await new Promise((ok, ko) => {
+      const r = indexedDB.open('model-storage');
+      r.onsuccess = () => ok(r.result);
+      r.onerror = () => ko('open-error');
+      r.onblocked = () => ko('open-blocked');
+      setTimeout(() => ko('open-timeout'), 15000);
+    });
+    const tx = db.transaction(['message', 'contact', 'chat'], 'readonly');
+    const details = [], statuses = [];
+    await new Promise((ok, ko) => {
+      const c = tx.objectStore('message').openCursor();
+      c.onerror = () => ko('cursor-error');
+      c.onsuccess = e => {
+        const cur = e.target.result;
+        if (!cur) return ok();
+        const v = cur.value;
+        if (v.type === 'interactive' &&
+            (v.nativeFlowName === 'order_details' || v.nativeFlowName === 'order_status')) {
+          const peer = v.id.startsWith('true_') ? v.to : v.from;
+          const rec = {
+            t: v.t,
+            peer: peer && (peer._serialized || peer),
+            params: ((v.interactivePayload && v.interactivePayload.buttons) || [])
+                      .map(b => b.buttonParamsJson).filter(Boolean),
+          };
+          (v.nativeFlowName === 'order_details' ? details : statuses).push(rec);
+        }
+        cur.continue();
+      };
+    });
+    const get = (store, key) => new Promise(ok => {
+      const r = tx.objectStore(store).get(key);
+      r.onsuccess = () => ok(r.result || null);
+      r.onerror = () => ok(null);
+    });
+    const names = {};
+    for (const d of details) {
+      if (!d.peer || d.peer in names) continue;
+      const ct = await get('contact', d.peer);
+      const ch = await get('chat', d.peer);
+      names[d.peer] = (ct && (ct.name || ct.verifiedName || ct.pushname || ct.username)) ||
+                      (ch && ch.name) ||
+                      (ct && ct.phoneNumber && ('+' + String(ct.phoneNumber).split('@')[0])) || '';
+    }
+    db.close();
+    done({ok: true, details, statuses, names});
+  } catch (e) {
+    done({ok: false, error: String(e)});
+  }
+})();
+"""
+
 # Nombres de meses en español e inglés para parseo de fechas
 MESES_ES = {
     'enero': 1, 'febrero': 2, 'marzo': 3, 'abril': 4,
@@ -98,6 +158,79 @@ class OrderScraper:
     # ── Punto de entrada público ──────────────────────────────────────────────
     def fetch(self) -> list[dict]:
         self.last_run_diagnostics = {"status": "started"}
+        orders = self._fetch_from_indexeddb()
+        if orders is not None:
+            return orders
+        logger.warning("[IDB] Lectura directa no disponible, usando navegación por la UI")
+        return self._fetch_from_ui()
+
+    def _fetch_from_indexeddb(self) -> list[dict] | None:
+        """Devuelve los pedidos leídos de la IndexedDB, o None si no se pudo leer."""
+        self._status("📦 Leyendo pedidos…")
+        started = time.time()
+        try:
+            self.driver.set_script_timeout(90)
+            raw = self.driver.execute_async_script(_IDB_ORDERS_JS)
+        except Exception as e:
+            logger.warning("[IDB] Error ejecutando lectura: %s", e)
+            return None
+        if not raw or not raw.get("ok"):
+            logger.warning("[IDB] Lectura fallida: %s", (raw or {}).get("error"))
+            return None
+
+        # Último estado conocido por reference_id
+        latest_status: dict[str, tuple[int, str]] = {}
+        for rec in raw.get("statuses", []):
+            for params in rec.get("params", []):
+                data = self._json_or_none(params)
+                ref = data and data.get("reference_id")
+                status = data and (data.get("order") or {}).get("status")
+                if ref and status and rec["t"] >= latest_status.get(ref, (-1, ""))[0]:
+                    latest_status[ref] = (rec["t"], status)
+
+        names = raw.get("names", {})
+        orders: dict[str, dict] = {}
+        for rec in raw.get("details", []):
+            for params in rec.get("params", []):
+                data = self._json_or_none(params)
+                ref = data and data.get("reference_id")
+                if not ref:
+                    continue
+                order_info = data.get("order") or {}
+                status = latest_status.get(ref, (0, order_info.get("status", "")))[1]
+                items = order_info.get("items") or []
+                producto = ", ".join(
+                    f"{it.get('name', '').strip()}" + (f" x{it['quantity']}" if (it.get("quantity") or 1) > 1 else "")
+                    for it in items if it.get("name")
+                ) or (data.get("additional_note") or "").strip()
+                total = data.get("total_amount") or order_info.get("subtotal") or {}
+                offset = total.get("offset") or 1
+                orders[ref] = {
+                    "id": ref,
+                    "whatsapp_order_id": ref,
+                    "cliente": names.get(rec.get("peer"), "") or "Desconocido",
+                    "producto": producto,
+                    "monto": float(total.get("value", 0)) / offset,
+                    "fecha": datetime.fromtimestamp(rec["t"]).date().isoformat(),
+                    "estado": ESTADO_MAP.get(status.replace("_", " ").lower(), status or "Desconocido"),
+                }
+
+        result = list(orders.values())
+        logger.info("[IDB] %s pedido(s) leídos en %.1fs (%s cambios de estado)",
+                    len(result), time.time() - started, len(latest_status))
+        self._status(f"✅ {len(result)} pedido(s) importados · {datetime.now().strftime('%H:%M')}")
+        self.last_run_diagnostics = {"status": "ok", "orders_count": len(result), "source": "indexeddb"}
+        return result
+
+    @staticmethod
+    def _json_or_none(text: str) -> dict | None:
+        try:
+            data = json.loads(text)
+            return data if isinstance(data, dict) else None
+        except (TypeError, ValueError):
+            return None
+
+    def _fetch_from_ui(self) -> list[dict]:
         self._trace_step("fetch", "inicio extracción")
         self._debug_pause("fetch:start")
         
