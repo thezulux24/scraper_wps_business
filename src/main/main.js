@@ -39,6 +39,7 @@ let autoMigrationSummary = null;
 // Usar una carpeta de perfil limpia y con permisos garantizados del usuario actual
 // para evitar errores de bloqueo de cache (0x5) o lockfile (Error code 32) en Windows.
 try {
+  app.setAppUserModelId('com.cafepalmonte.ordermanager');
   const userProfileDir = path.join(DATA_DIR, 'app_profile');
   fs.mkdirSync(userProfileDir, { recursive: true });
   app.setPath('userData', userProfileDir);

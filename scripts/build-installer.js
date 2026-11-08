@@ -130,24 +130,7 @@ if (fs.existsSync(officialElectronExe) && fs.existsSync(unpackedDir)) {
   if (fs.existsSync(appIco)) {
     fs.copyFileSync(appIco, path.join(unpackedDir, 'app.ico'));
     if (fs.existsSync(rceditPath)) {
-      spawnSync(
-        rceditPath,
-        [
-          unpackedExe,
-          '--set-icon',
-          appIco,
-          '--set-version-string',
-          'ProductName',
-          "Cafe Pa'l Monte",
-          '--set-version-string',
-          'FileDescription',
-          "Cafe Pa'l Monte - Gestion de Pedidos",
-          '--set-version-string',
-          'CompanyName',
-          "Cafe Pa'l Monte",
-        ],
-        { stdio: 'inherit' }
-      );
+      spawnSync(rceditPath, [unpackedExe, '--set-icon', appIco], { stdio: 'inherit' });
     }
   }
   console.log('Binario oficial con icono de Cafe Pa\'l Monte aplicado en:', unpackedExe);
