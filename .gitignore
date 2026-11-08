@@ -1,32 +1,18 @@
-.venv/
-old/
-
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Local tool/editor metadata
-.claude/
-
-# Local runtime data
-app/orders.db
-run.bat
-wsp_session_*/
-app/wsp_session_*/
-populate_test_data.py
-app/reportes/*.pdf
-app/reportes/*.xlsx
-
-populate_test_data.py/
-
-# Build and IDE outputs
+# Dependencies & Build Outputs
 node_modules/
 dist/
 release/
 build/
-.pytest_cache/
+
+# Local runtime & database files
+*.db
+*.db-shm
+*.db-wal
+wsp_session_*/
+app/reportes/
+
+# Logs & Editor metadata
 *.log
 .idea/
 .vscode/
+.claude/

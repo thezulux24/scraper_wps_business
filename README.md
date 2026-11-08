@@ -1,94 +1,64 @@
-# WBS Order Manager - Manual de Usuario
+# Café Pa'l Monte · Sistema de Gestión de Pedidos y Analítica (v2.0)
 
-Sistema integral para la sincronización automática, gestión y analítica de órdenes generadas a través de WhatsApp Business Web.
-
----
-
-## Descripción del Sistema
-
-WBS Order Manager es una aplicación de escritorio diseñada para consolidar las ventas originadas en WhatsApp Business. Extrae de forma segura la información de cada orden, previniendo duplicados y consolidando los datos en una base local robusta. Adicionalmente, cuenta con un panel analítico en tiempo real y opciones de generación de reportes avanzados para facilitar la toma de decisiones empresariales.
-
-Características principales:
-- **Sincronización automatizada:** Conexión directa y segura a WhatsApp Web para la descarga de pedidos.
-- **Prevención de duplicados:** Identificación única de cada pedido para evitar registros repetidos.
-- **Panel analítico (Dashboard):** Visualización de métricas clave (ingresos, órdenes canceladas, top clientes y comparativas anuales).
-- **Generación de reportes:** Exportación a PDF y Excel de periodos predeterminados o personalizados.
-- **Base de datos local:** Almacenamiento privado y seguro mediante SQLite, sin depender de servidores externos.
+Aplicación nativa de escritorio para Windows diseñada para **Café Pa'l Monte** (San Antonio, Jamundí · NIT 6.559.455-1). Consolida pedidos de **WhatsApp Business Web** y pedidos manuales en una base de datos local **SQLite WAL**, gestiona cartera por cobrar (CRM), ofrece analítica comercial en tiempo real y exporta reportes ejecutivos y remisiones individuales en **PDF (membrete oficial)** y **Excel**.
 
 ---
 
-## Requisitos del Sistema
+## Módulos Principales
 
-Para el correcto funcionamiento de la aplicación, el equipo debe cumplir con los siguientes requerimientos:
-
-- **Sistema Operativo:** Windows 10 o superior (64-bits).
-- **Navegador Web:** Google Chrome o Microsoft Edge (en su última versión).
-- **Software base:** Python 3.10 o superior (se recomienda 3.11).
-
----
-
-## Guía de Instalación para desarrollador
-
-Existen dos vías para instalar la aplicación en su entorno de trabajo:
-
-### Instalación Rápida (Windows)
-1. Extraiga la carpeta del software en la ubicación deseada.
-2. Haga doble clic sobre el archivo `install.bat`. Este script configurará el entorno virtual y descargará las dependencias necesarias de forma automática.
-
-### Instalación Manual (Técnica)
-1. Abra la terminal (Símbolo del sistema o PowerShell) en el directorio del proyecto.
-2. Cree un entorno virtual:
-   `python -m venv .venv`
-3. Active el entorno virtual:
-   `.\.venv\Scripts\activate`
-4. Instale las dependencias:
-   `pip install -r requirements.txt`
+1. **Panel de Pedidos y Meta Mensual:**
+   - KPIs contables en tiempo real: *Ingresos netos aprobados*, *Órdenes en periodo*, *Pagadas / En curso*, *Pendientes de cobro* y *Canceladas*.
+   - Gráfico de pulso de facturación, desglose por estados/productos/clientes y **Meta Mensual de Ventas** configurable.
+   - Registro de pedidos manuales con **Catálogo Rápido de Café Pa'l Monte** y autocompletado de clientes.
+2. **Directorio de Clientes y Cartera (CRM):**
+   - Control de saldos pendientes por cobrar, clientes recurrentes VIP (2+ compras), valor promedio LTV y clientes por reactivar (+30 días).
+   - Generador de mensajes de WhatsApp (recordatorio de cobro o invitación de recompra) y **Estado de Cuenta PDF** individual por cliente.
+3. **Inspector de Pedido, Remisión PDF y Plantillas WhatsApp:**
+   - Descarga en 1 clic de la **Remisión y Comprobante de Pedido PDF** en formato membrete oficial.
+   - Tres plantillas rápidas de WhatsApp listas para copiar: *Confirmar pedido*, *Aviso de despacho* y *Recordatorio de cobro*.
+4. **Analítica Comercial y Centro de Reportes (PDF y Excel):**
+   - Comparativa interanual, embudo de estados, Top 10 productos y Top 10 clientes VIP.
+   - Exportación rápida o personalizada (por rango de fechas, estado y cliente) a PDF con membrete oficial y Excel de 2 hojas (*Órdenes Detalladas* + *Resumen Ejecutivo*).
+5. **Base de Datos Segura, Migración y Wizard Nativo:**
+   - Los datos viven en `%LOCALAPPDATA%\CafePalMonte\orders.db`, aislados del instalador para que ninguna actualización borre los registros.
+   - Asistente integrado para migrar automáticamente bases de datos `orders.db` de la versión anterior sin duplicar pedidos.
 
 ---
 
-## Guía de Uso para desarrolladores
+## Estructura del Repositorio
 
-Para ejecutar la aplicación, inicie el archivo `run.bat` o ejecute desde la consola el comando `python app/main.py`.
-
-### 1. Conexión de WhatsApp
-1. Al iniciar la aplicación, diríjase a la barra lateral izquierda y presione **"Conectar WhatsApp"**.
-2. Se abrirá una ventana controlada de su navegador mostrando el código QR de WhatsApp Web.
-3. Desde su dispositivo móvil, escanee el código QR tal como lo haría al iniciar sesión normalmente.
-4. Una vez la sesión se haya vinculado, la ventana se acoplará y el sistema iniciará la primera sincronización de forma automática.
-
-### 2. Gestión de Órdenes
-- **Sincronización Automática:** El sistema actualizará las órdenes en segundo plano mientras permanezca conectado.
-- **Sincronización Manual:** En caso de requerir una actualización inmediata, presione el botón **"Sincronización Manual"** en el panel izquierdo.
-- **Filtros de fecha:** En la pestaña principal de "Órdenes", puede seleccionar rangos de fecha específicos para consultar transacciones puntuales.
-
-### 3. Analítica Empresarial
-Acceda a la pestaña **"Analítica"** para consultar métricas financieras y operativas. Encontrará la siguiente información:
-- Resumen financiero: Ingresos, promedio por orden y tasas de órdenes finalizadas/canceladas.
-- Gráfico de ventas y proyecciones.
-- Gráfico comparativo de ventas anuales.
-- Distribución de estados y tasas de cancelación mensuales.
-- Top de clientes por volumen de compra y productos más vendidos.
-
-### 4. Generación de Reportes
-En la pestaña **"Reportes"**, puede generar documentos consolidados en formato PDF o Excel. 
-- Utilice la sección **"Generación Rápida"** para obtener informes instantáneos de periodos comunes (ej. Último Mes, Último Trimestre, Acumulado Anual, Toda la Operación).
-- Todos los documentos generados se listarán en la parte inferior, donde podrá abrirlos haciendo clic en su botón respectivo.
+```text
+├── app/assets/                 # Icono oficial (.ico), logo y plantilla de membrete PDF
+├── scripts/
+│   ├── after-pack.js           # Incrusta icono oficial de Café Pa'l Monte en el .exe
+│   ├── build-installer.js      # Compila el instalador CafePalMonte_Setup_v2.0.0.exe
+│   ├── installer.nsh           # Script NSIS de actualización limpia y desinstalación
+│   └── seed-demo-data.js       # Poblador de órdenes de prueba hasta la fecha/hora actual
+├── src/
+│   ├── main/                   # Proceso principal Electron, SQLite WAL, Scraper y Exporter
+│   └── renderer/               # Interfaz gráfica (Warm Coffee Parchment & Espresso Dark)
+└── package.json
+```
 
 ---
 
-## Solución de Problemas Frecuentes
+## Comandos de Desarrollo y Compilación
 
-**El navegador no abre tras presionar "Conectar WhatsApp"**
-Verifique que tiene Google Chrome o Microsoft Edge instalados en su última versión y que su antivirus no esté bloqueando la ejecución automatizada de Selenium.
+Requisitos: **Node.js 20+** y **Windows 10/11 (x64)**.
 
-**Las órdenes no se están actualizando**
-Asegúrese de que el teléfono móvil mantenga conexión a internet y que la sesión en el navegador controlado por el sistema no haya sido cerrada o interrumpida de forma manual.
+```bash
+# Instalar dependencias
+npm install
 
-**El monto total en los reportes no coincide con mi sumatoria manual**
-El cálculo financiero está programado de acuerdo a la lógica empresarial: únicamente suma las órdenes con estados aprobatorios (Completado, Enviado, Envío en preparación, Entregado). Las órdenes pendientes y canceladas son excluidas de la sumatoria de ingresos netos.
+# Ejecutar en modo desarrollo
+npm start
 
----
+# Poblar datos de prueba realistas hasta la fecha y hora actual
+npm run seed:demo
 
-## Soporte y Mantenimiento
+# Ejecutar pruebas automáticas de base de datos, migración y reportes
+npm run test:db
 
-Este software realiza conexiones locales y procesos automatizados. No requiere llaves de API ni compromete los datos a servidores en la nube. Las carpetas de sesión y bases de datos (`app/orders.db`) son de uso exclusivo y local. Se recomienda hacer copias de seguridad de la base de datos periódicamente.
+# Compilar aplicación e instalador oficial en dist/CafePalMonte_Setup_v2.0.0.exe
+npm run dist
+```

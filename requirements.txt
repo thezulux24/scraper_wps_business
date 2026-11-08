@@ -1,8 +1,0 @@
-selenium
-openpyxl
-reportlab
-webdriver-manager
-customtkinter
-Pillow
-matplotlib
-tkcalendar
