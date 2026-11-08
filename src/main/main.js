@@ -73,15 +73,16 @@ function readLogoDataUrl() {
 function createWindow() {
   const iconPath = getAssetPath('app.ico');
   const validIcon = iconPath && fs.existsSync(iconPath) ? iconPath : undefined;
+  const isCaptureViews = process.argv.includes('--capture-views');
   mainWindow = new BrowserWindow({
-    width: 1360,
-    height: 860,
+    width: isCaptureViews ? 1440 : 1380,
+    height: isCaptureViews ? 920 : 880,
     minWidth: 1024,
     minHeight: 680,
     show: false,
     title: "Café Pa'l Monte · Gestión de Pedidos",
     icon: validIcon,
-    backgroundColor: '#F4ECE0',
+    backgroundColor: '#F2ECE4',
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -103,6 +104,127 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+
+  if (isCaptureViews) {
+    const rendererErrors = [];
+    mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+      if (level >= 2) {
+        rendererErrors.push({ level, message, line, sourceId });
+      }
+    });
+    mainWindow.webContents.on('did-finish-load', () => {
+      setTimeout(async () => {
+        const outDir =
+          process.env.CAPTURE_OUT_DIR ||
+          path.join(DATA_DIR, 'smoke');
+        fs.mkdirSync(outDir, { recursive: true });
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        try {
+          // Ensure light mode first
+          await mainWindow.webContents.executeJavaScript(`
+            if (document.documentElement.getAttribute('data-theme') === 'dark') {
+              document.getElementById('btn-theme-toggle')?.click();
+            }
+          `);
+          await sleep(450);
+
+          // 1. Panel de Pedidos (Light)
+          let img = await mainWindow.webContents.capturePage();
+          fs.writeFileSync(path.join(outDir, 'v2-panel-light.png'), img.toPNG());
+
+          // 2. Open Order Inspector Drawer on first row
+          await mainWindow.webContents.executeJavaScript(`
+            document.querySelector('.btn-row-inspect')?.click();
+          `);
+          await sleep(450);
+          img = await mainWindow.webContents.capturePage();
+          fs.writeFileSync(path.join(outDir, 'v2-drawer-light.png'), img.toPNG());
+
+          // Close drawer
+          await mainWindow.webContents.executeJavaScript(`
+            document.getElementById('btn-close-drawer')?.click();
+          `);
+          await sleep(350);
+
+          // 3. Analítica Comercial (Light)
+          await mainWindow.webContents.executeJavaScript(`
+            document.querySelector('[data-view="analytics"]')?.click();
+          `);
+          await sleep(500);
+          img = await mainWindow.webContents.capturePage();
+          fs.writeFileSync(path.join(outDir, 'v2-analytics-light.png'), img.toPNG());
+
+          // 4. Reportes y Exportación (Light)
+          await mainWindow.webContents.executeJavaScript(`
+            document.querySelector('[data-view="reports"]')?.click();
+          `);
+          await sleep(400);
+          img = await mainWindow.webContents.capturePage();
+          fs.writeFileSync(path.join(outDir, 'v2-reports-light.png'), img.toPNG());
+
+          // 5. Base de Datos y Wizard (Light)
+          await mainWindow.webContents.executeJavaScript(`
+            document.querySelector('[data-view="system"]')?.click();
+          `);
+          await sleep(400);
+          img = await mainWindow.webContents.capturePage();
+          fs.writeFileSync(path.join(outDir, 'v2-system-light.png'), img.toPNG());
+
+          // 6. Panel de Pedidos (Dark Mode - Tueste Nocturno)
+          await mainWindow.webContents.executeJavaScript(`
+            document.querySelector('[data-view="panel"]')?.click();
+            if (document.documentElement.getAttribute('data-theme') !== 'dark') {
+              document.getElementById('btn-theme-toggle')?.click();
+            }
+          `);
+          await sleep(500);
+          img = await mainWindow.webContents.capturePage();
+          fs.writeFileSync(path.join(outDir, 'v2-panel-dark.png'), img.toPNG());
+
+          // 7. Analítica Comercial (Dark Mode - Tueste Nocturno)
+          await mainWindow.webContents.executeJavaScript(`
+            document.querySelector('[data-view="analytics"]')?.click();
+          `);
+          await sleep(500);
+          img = await mainWindow.webContents.capturePage();
+          fs.writeFileSync(path.join(outDir, 'v2-analytics-dark.png'), img.toPNG());
+
+          // Restore light mode default & orders view
+          await mainWindow.webContents.executeJavaScript(`
+            document.querySelector('[data-view="panel"]')?.click();
+            if (document.documentElement.getAttribute('data-theme') === 'dark') {
+              document.getElementById('btn-theme-toggle')?.click();
+            }
+          `);
+          await sleep(200);
+
+          const diagnostics = await mainWindow.webContents.executeJavaScript(`({
+            kpiTotalRevenue: document.getElementById('kpi-total-revenue')?.textContent || '',
+            overviewFinding: document.getElementById('overview-finding')?.textContent || '',
+            ovMainChartSvgCount: document.querySelectorAll('#ov-main-chart svg').length,
+            ovSideContentHtmlLen: (document.getElementById('ov-side-content')?.innerHTML || '').length,
+            ordersRows: document.querySelectorAll('#orders-tbody tr').length,
+            monthlyChartSvgCount: document.querySelectorAll('#monthly-chart-host svg').length,
+            stateRingSvgCount: document.querySelectorAll('#state-breakdown-list svg').length
+          })`);
+
+          fs.writeFileSync(
+            path.join(outDir, 'v2-capture-report.json'),
+            JSON.stringify({ ok: true, diagnostics, rendererErrors }, null, 2),
+            'utf8'
+          );
+          app.exit(0);
+        } catch (err) {
+          fs.writeFileSync(
+            path.join(outDir, 'v2-capture-report.json'),
+            JSON.stringify({ ok: false, error: err.message, stack: err.stack, rendererErrors }, null, 2),
+            'utf8'
+          );
+          app.exit(1);
+        }
+      }, 1500);
+    });
+  }
 
   if (process.argv.includes('--smoke-test')) {
     mainWindow.webContents.on('did-finish-load', () => {

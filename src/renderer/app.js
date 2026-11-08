@@ -1,5 +1,6 @@
 /* ==========================================================================
-   Café Pa'l Monte · Lógica de Interfaz de Escritorio (Renderer)
+   Café Pa'l Monte · Lógica de Interfaz de Escritorio (Renderer v2)
+   Framed Sheet Architecture · SVG Charts · Inspector Drawer · SQLite WAL
    ========================================================================== */
 
 const MESES = [
@@ -43,7 +44,13 @@ const state = {
   version: '2.0.0',
   theme: 'light',
   currentView: 'panel',
+  dashboardLayout: 'full', // 'full' | 'table'
+  ovChartMetric: 'revenue', // 'revenue' | 'orders'
+  ovChartGroup: 'date', // 'date' | 'month'
+  ovSideTab: 'states', // 'states' | 'products' | 'clients'
+  periodPreset: 'all',
   orders: [],
+  periodOrders: [],
   filteredOrders: [],
   selectedIds: new Set(),
   sortCol: 'fecha',
@@ -60,9 +67,11 @@ const state = {
   knownLegacySources: [],
   pendingMigrationPath: null,
   editingOrder: null,
+  inspectingOrderId: null,
   contextMenuOrderId: null,
   confirmActionCallback: null,
   topCustomersSnapshot: [],
+  clientSummaryMap: new Map(),
   connection: {
     connected: false,
     connecting: false,
@@ -134,7 +143,7 @@ const api = window.cafeApi || {
   onOrdersUpdated: () => {},
 };
 
-// ── Utilidades de formato ────────────────────────────────────────────────────
+// ── Utilidades de Formato y Presentación ─────────────────────────────────────
 function formatMoney(value) {
   const num = Number(value || 0);
   return (
@@ -147,20 +156,20 @@ function formatMoney(value) {
 }
 
 function formatMoneyCompact(value) {
-  const num = Number(value || 0);
-  return (
-    '$' +
-    num.toLocaleString('en-US', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    })
-  );
+  const num = Math.round(Number(value || 0));
+  return '$' + num.toLocaleString('en-US', { maximumFractionDigits: 0 });
 }
 
 function todayIso() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function formatShortDate(isoStr) {
+  if (!isoStr || !/^\d{4}-\d{2}-\d{2}$/.test(isoStr)) return '';
+  const [y, m, d] = isoStr.split('-').map(Number);
+  return `${d} ${MESES_CORTOS[m - 1]?.toLowerCase() || ''} ${y}`;
 }
 
 function escapeHtml(raw) {
@@ -181,6 +190,61 @@ function getBadgeClass(estado) {
   return 'badge-pending';
 }
 
+// Identidad cromática suave por cliente (app-screens.md §2.3)
+const AVATAR_PALETTES_LIGHT = [
+  { bg: '#E6F4EA', fg: '#135228' },
+  { bg: '#FCE8E6', fg: '#8C1D18' },
+  { bg: '#E8F0FE', fg: '#174EA6' },
+  { bg: '#FEF3C7', fg: '#78350F' },
+  { bg: '#F3E8FD', fg: '#5B21B6' },
+  { bg: '#E0F2F1', fg: '#004D40' },
+];
+
+const AVATAR_PALETTES_DARK = [
+  { bg: '#143321', fg: '#6EE7B7' },
+  { bg: '#3B1818', fg: '#FCA5A5' },
+  { bg: '#172B4D', fg: '#93C5FD' },
+  { bg: '#382810', fg: '#FCD34D' },
+  { bg: '#2B1B42', fg: '#D8B4FE' },
+  { bg: '#11302E', fg: '#5EEAD4' },
+];
+
+function getCustomerAvatarData(rawName) {
+  const clean = String(rawName || 'Cliente')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .trim();
+  const parts = clean.split(/\s+/).filter(Boolean);
+  const initials =
+    parts.length >= 2
+      ? (parts[0][0] + parts[1][0]).toUpperCase()
+      : (clean.slice(0, 2) || 'CL').toUpperCase();
+
+  let hash = 0;
+  const key = String(rawName || '');
+  for (let i = 0; i < key.length; i += 1) {
+    hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+  }
+  const paletteSet = state.theme === 'dark' ? AVATAR_PALETTES_DARK : AVATAR_PALETTES_LIGHT;
+  const pal = paletteSet[hash % paletteSet.length];
+  return { initials, bg: pal.bg, fg: pal.fg };
+}
+
+function rebuildClientSummaryMap() {
+  const map = new Map();
+  for (const o of state.orders) {
+    const key = o.cliente || 'Cliente';
+    const cur = map.get(key) || { count: 0, paidCount: 0, paidRevenue: 0, lastDate: '' };
+    cur.count += 1;
+    if (PAID_STATES.has(o.estado)) {
+      cur.paidCount += 1;
+      cur.paidRevenue += Number(o.monto || 0);
+    }
+    if (!cur.lastDate || o.fecha > cur.lastDate) cur.lastDate = o.fecha;
+    map.set(key, cur);
+  }
+  state.clientSummaryMap = map;
+}
+
 function showToast(message) {
   const container = document.getElementById('toast-container');
   if (!container) return;
@@ -190,7 +254,7 @@ function showToast(message) {
   container.appendChild(el);
   setTimeout(() => {
     el.remove();
-  }, 3800);
+  }, 3600);
 }
 
 function setStatusText(text) {
@@ -200,14 +264,19 @@ function setStatusText(text) {
   if (waSub) waSub.textContent = text;
 }
 
-// ── Tema Claro / Oscuro (R-21, R-34) ─────────────────────────────────────────
+// ── Tema Claro / Oscuro ──────────────────────────────────────────────────────
 function applyTheme(theme) {
   const next = theme === 'dark' ? 'dark' : 'light';
   state.theme = next;
   document.documentElement.setAttribute('data-theme', next);
   const lbl = document.getElementById('theme-toggle-label');
   if (lbl) {
-    lbl.textContent = next === 'dark' ? 'Tema: Tueste Nocturno' : 'Tema: Pergamino Claro';
+    lbl.textContent = next === 'dark' ? 'Oscuro' : 'Claro';
+  }
+  if (state.orders.length) {
+    renderOrdersTable();
+    renderOverviewDashboard(state.periodOrders);
+    if (state.currentView === 'analytics') renderAnalytics();
   }
 }
 
@@ -245,7 +314,6 @@ function initDateControls() {
       MESES.map((m, idx) => `<option value="${idx + 1}">${m}</option>`).join('');
   }
 
-  // Por defecto: mostrar desde el inicio del año o el pedido más antiguo para no ocultar nada
   state.dateFrom = `${curYear}-01-01`;
   state.dateTo = todayIso();
 
@@ -256,11 +324,13 @@ function initDateControls() {
 
   const topbarDate = document.getElementById('topbar-date');
   if (topbarDate) {
-    topbarDate.textContent = now.toLocaleDateString('es-CO', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    });
+    topbarDate.textContent =
+      'Hoy, ' +
+      now.toLocaleDateString('es-CO', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      });
   }
 }
 
@@ -291,34 +361,9 @@ function switchView(viewName) {
     sec.classList.toggle('active', sec.id === `view-${viewName}`);
   });
 
-  const titleEl = document.getElementById('topbar-title');
-  const subEl = document.getElementById('topbar-subtitle');
-
-  const meta = {
-    panel: {
-      title: 'Panel de Pedidos',
-      sub: 'Consolidación contable de órdenes de WhatsApp Business',
-    },
-    analytics: {
-      title: 'Analítica Comercial',
-      sub: 'Métricas financieras, productos de mayor ingreso y clientes principales',
-    },
-    reports: {
-      title: 'Reportes Oficiales PDF y Excel',
-      sub: "Generación e historial de cierres con papel membrete de Café Pa'l Monte",
-    },
-    system: {
-      title: 'Base de Datos, Migración y Actualizaciones',
-      sub: 'Gestión de SQLite local, importación de versiones anteriores y Wizard de actualización',
-    },
-  }[viewName];
-
-  if (meta && titleEl && subEl) {
-    titleEl.textContent = meta.title;
-    subEl.textContent = meta.sub;
-  }
-
-  if (viewName === 'analytics') {
+  if (viewName === 'panel') {
+    renderOverviewDashboard(state.periodOrders);
+  } else if (viewName === 'analytics') {
     renderAnalytics();
   } else if (viewName === 'reports') {
     renderReportsList();
@@ -329,6 +374,8 @@ function switchView(viewName) {
 
 // ── Filtrado, Ordenamiento y Renderizado del Panel ───────────────────────────
 function applyFiltersAndRender() {
+  rebuildClientSummaryMap();
+
   const fromVal = document.getElementById('filter-date-from')?.value || '0000-01-01';
   const toVal = document.getElementById('filter-date-to')?.value || '9999-12-31';
   state.dateFrom = fromVal;
@@ -336,7 +383,7 @@ function applyFiltersAndRender() {
 
   const query = state.searchQuery.trim().toLowerCase();
 
-  // 1) Filtrar por rango de fecha y búsqueda para KPIs del periodo
+  // 1) Filtrar por rango de fecha y búsqueda para KPIs y gráficas del periodo
   const periodOrders = state.orders.filter((o) => {
     const inDate = o.fecha >= fromVal && o.fecha <= toVal;
     if (!inDate) return false;
@@ -347,7 +394,9 @@ function applyFiltersAndRender() {
     return true;
   });
 
-  updatePanelKpis(periodOrders);
+  state.periodOrders = periodOrders;
+  updatePanelKpisAndFinding(periodOrders);
+  renderOverviewDashboard(periodOrders);
 
   // 2) Filtrar por estado seleccionado
   const visible = periodOrders.filter((o) => {
@@ -370,7 +419,6 @@ function applyFiltersAndRender() {
 
   state.filteredOrders = visible;
 
-  // Limpiar selecciones que ya no estén visibles
   const visibleIds = new Set(visible.map((o) => o.id));
   for (const id of Array.from(state.selectedIds)) {
     if (!visibleIds.has(id)) state.selectedIds.delete(id);
@@ -390,25 +438,263 @@ function updateNavBadge() {
   }
 }
 
-function updatePanelKpis(periodOrders) {
+function updatePanelKpisAndFinding(periodOrders) {
   const paidOrders = periodOrders.filter((o) => PAID_STATES.has(o.estado));
+  const pendingOrders = periodOrders.filter((o) => o.estado === 'Pendiente');
+  const cancelledOrders = periodOrders.filter((o) => o.estado === 'Cancelado');
+
   const totalRevenue = paidOrders.reduce((acc, o) => acc + Number(o.monto || 0), 0);
+  const grossRevenue = periodOrders.reduce((acc, o) => acc + Number(o.monto || 0), 0);
+  const pendingAmount = pendingOrders.reduce((acc, o) => acc + Number(o.monto || 0), 0);
+  const cancelledAmount = cancelledOrders.reduce((acc, o) => acc + Number(o.monto || 0), 0);
   const avgTicket = paidOrders.length > 0 ? totalRevenue / paidOrders.length : 0;
-  const pendingCount = periodOrders.filter((o) => o.estado === 'Pendiente').length;
-  const cancelledCount = periodOrders.filter((o) => o.estado === 'Cancelado').length;
+  const paidSharePct = periodOrders.length > 0 ? ((paidOrders.length / periodOrders.length) * 100).toFixed(0) : '0';
 
   document.getElementById('kpi-total-revenue').textContent = formatMoney(totalRevenue);
   document.getElementById('kpi-ticket-avg').textContent = `Ticket promedio: ${formatMoney(avgTicket)}`;
   document.getElementById('kpi-count-total').textContent = String(periodOrders.length);
   document.getElementById('kpi-count-paid').textContent = String(paidOrders.length);
-  document.getElementById('kpi-count-pending').textContent = String(pendingCount);
-  document.getElementById('kpi-count-cancelled').textContent = String(cancelledCount);
+  document.getElementById('kpi-count-pending').textContent = String(pendingOrders.length);
+  document.getElementById('kpi-count-cancelled').textContent = String(cancelledOrders.length);
+
+  const grossSub = document.getElementById('kpi-gross-sub');
+  if (grossSub) grossSub.textContent = `Volumen bruto: ${formatMoney(grossRevenue)}`;
+
+  const paidShareEl = document.getElementById('kpi-paid-share');
+  if (paidShareEl) paidShareEl.textContent = `${paidSharePct}% del total de órdenes`;
+
+  const pendSub = document.getElementById('kpi-pending-amount');
+  if (pendSub) {
+    pendSub.textContent = pendingOrders.length > 0 ? `${formatMoney(pendingAmount)} por cobrar` : 'Sin cobros pendientes';
+  }
+
+  const cancSub = document.getElementById('kpi-cancelled-amount');
+  if (cancSub) {
+    cancSub.textContent = cancelledOrders.length > 0 ? `${formatMoney(cancelledAmount)} excluidos` : '0 descartadas';
+  }
+
+  // Hallazgo ejecutivo en la primera línea bajo el título (app-screens.md §2.2)
+  const findingEl = document.getElementById('overview-finding');
+  if (findingEl) {
+    if (!periodOrders.length) {
+      findingEl.textContent = 'Sin órdenes en el rango seleccionado. Amplía las fechas o sincroniza WhatsApp Business.';
+    } else {
+      const parts = [
+        `Facturación neta de <strong>${formatMoney(totalRevenue)}</strong> en <strong>${paidOrders.length} orden(es) aprobada(s)</strong>`,
+      ];
+      if (pendingOrders.length > 0) {
+        parts.push(`<strong>${pendingOrders.length} pendiente(s)</strong> por ${formatMoney(pendingAmount)}`);
+      }
+      if (cancelledOrders.length > 0) {
+        parts.push(`${cancelledOrders.length} cancelada(s) (${formatMoney(cancelledAmount)})`);
+      }
+      findingEl.innerHTML = parts.join(' · ');
+    }
+  }
 
   document.querySelectorAll('.metric-tile').forEach((tile) => {
-    tile.classList.toggle('active', tile.dataset.stateFilter === state.stateFilter);
+    const isSelected = tile.dataset.stateFilter === state.stateFilter;
+    tile.classList.toggle('active', isSelected);
+    tile.setAttribute('aria-selected', isSelected ? 'true' : 'false');
   });
 }
 
+// ── Visualización Interactiva del Dashboard Principal ────────────────────────
+function renderOverviewDashboard(periodOrders) {
+  const gridEl = document.getElementById('overview-charts-grid');
+  if (!gridEl) return;
+
+  if (state.dashboardLayout === 'table') {
+    gridEl.classList.add('hidden');
+    return;
+  }
+  gridEl.classList.remove('hidden');
+
+  renderOverviewMainChart(periodOrders);
+  renderOverviewSidePanel(periodOrders);
+}
+
+function renderOverviewMainChart(periodOrders) {
+  const host = document.getElementById('ov-main-chart');
+  const titleEl = document.getElementById('ov-chart-title');
+  const subEl = document.getElementById('ov-chart-sub');
+  if (!host || !window.Charts) return;
+
+  const isRev = state.ovChartMetric === 'revenue';
+  const byMonth = state.ovChartGroup === 'month';
+
+  const sourceOrders = isRev
+    ? periodOrders.filter((o) => PAID_STATES.has(o.estado))
+    : periodOrders.filter((o) => o.estado !== 'Cancelado');
+
+  if (titleEl) {
+    titleEl.textContent = isRev
+      ? 'Pulso de facturación aprobada'
+      : 'Volumen de pedidos activos';
+  }
+
+  if (!sourceOrders.length) {
+    if (subEl) subEl.textContent = 'Sin registros activos en el rango actual';
+    host.innerHTML = `<div class="empty-state" style="margin:0;min-height:165px"><h3>Sin datos para graficar en este rango</h3><p>Selecciona "Todo" en los atajos de periodo o sincroniza nuevas órdenes desde WhatsApp Business.</p></div>`;
+    return;
+  }
+
+  const buckets = new Map();
+  for (const o of sourceOrders) {
+    const rawDate = String(o.fecha || '');
+    if (!rawDate) continue;
+    const key = byMonth ? rawDate.slice(0, 7) : rawDate;
+    const prev = buckets.get(key) || 0;
+    buckets.set(key, prev + (isRev ? Number(o.monto || 0) : 1));
+  }
+
+  const sortedKeys = Array.from(buckets.keys()).sort();
+  const labels = sortedKeys.map((k) => {
+    if (byMonth) {
+      const [y, m] = k.split('-').map(Number);
+      return `${MESES_CORTOS[(m || 1) - 1]} ${String(y).slice(-2)}`;
+    }
+    const [, m, d] = k.split('-').map(Number);
+    return `${d} ${MESES_CORTOS[(m || 1) - 1]}`;
+  });
+  const values = sortedKeys.map((k) => buckets.get(k));
+  const totalVal = values.reduce((a, b) => a + b, 0);
+  const avgVal = values.length > 0 ? totalVal / values.length : 0;
+  const maxVal = Math.max(...values, 0);
+  const maxIdx = values.indexOf(maxVal);
+
+  if (subEl) {
+    subEl.textContent = isRev
+      ? `${sortedKeys.length} ${byMonth ? 'mes(es)' : 'fecha(s)'} con actividad · Total aprobado: ${formatMoney(totalVal)} · Promedio: ${formatMoney(avgVal)}`
+      : `${sortedKeys.length} ${byMonth ? 'mes(es)' : 'fecha(s)'} con pedidos · Total: ${totalVal} pedido(s)`;
+  }
+
+  const fmtFn = isRev ? formatMoneyCompact : Charts.fmt.int;
+  const refObj =
+    values.length >= 2 && avgVal > 0
+      ? { value: avgVal, label: `Prom. ${fmtFn(avgVal)}` }
+      : null;
+
+  if (values.length > 14) {
+    Charts.line(host, {
+      labels,
+      series: [{ name: isRev ? 'Ingresos' : 'Pedidos', values }],
+      format: fmtFn,
+      height: 134,
+      fill: true,
+      reference: refObj,
+      endLabel: true,
+    });
+  } else {
+    Charts.bars(host, {
+      labels,
+      values,
+      format: fmtFn,
+      height: 134,
+      highlight: maxIdx >= 0 ? maxIdx : null,
+      reference: refObj,
+    });
+  }
+}
+
+function renderOverviewSidePanel(periodOrders) {
+  const container = document.getElementById('ov-side-content');
+  const titleEl = document.getElementById('ov-side-title');
+  const subEl = document.getElementById('ov-side-sub');
+  if (!container) return;
+
+  if (!periodOrders.length) {
+    container.innerHTML = `<div class="empty-state" style="margin:0;min-height:130px"><p>No hay órdenes en este periodo.</p></div>`;
+    return;
+  }
+
+  if (state.ovSideTab === 'states') {
+    if (titleEl) titleEl.textContent = 'Composición';
+    if (subEl) subEl.textContent = `${periodOrders.length} orden(es) en periodo`;
+
+    const groups = [
+      { label: 'Completado / Entregado', match: (s) => s === 'Completado' || s === 'Entregado', tone: 'pos' },
+      { label: 'Enviado / En preparación', match: (s) => s === 'Enviado' || String(s).includes('preparaci'), tone: 'info' },
+      { label: 'Pendiente de cobro', match: (s) => s === 'Pendiente', tone: 'warn' },
+      { label: 'Cancelado (excluido)', match: (s) => s === 'Cancelado', tone: 'neg' },
+    ];
+
+    const totalOrders = periodOrders.length || 1;
+    const rowsHtml = groups
+      .map((g) => {
+        const subset = periodOrders.filter((o) => g.match(o.estado));
+        const sum = subset.reduce((a, o) => a + Number(o.monto || 0), 0);
+        const pct = Math.round((subset.length / totalOrders) * 100);
+        return `
+          <div class="breakdown-row">
+            <div class="breakdown-row-top">
+              <span class="breakdown-name">
+                <span class="kpi-dot ${g.tone === 'info' ? 'pos' : g.tone}"></span>
+                <span>${escapeHtml(g.label)}</span>
+              </span>
+              <span class="breakdown-figures">
+                ${formatMoney(sum)} <small>· ${subset.length} (${pct}%)</small>
+              </span>
+            </div>
+            <div class="breakdown-track">
+              <div class="breakdown-fill ${g.tone}" style="width: ${pct}%"></div>
+            </div>
+          </div>
+        `;
+      })
+      .join('');
+
+    const approvedSum = periodOrders
+      .filter((o) => PAID_STATES.has(o.estado))
+      .reduce((a, o) => a + Number(o.monto || 0), 0);
+
+    container.innerHTML = `
+      <div class="breakdown-list">${rowsHtml}</div>
+      <div class="breakdown-footer">
+        <span>Total neto aprobado (cierre contable)</span>
+        <strong style="color:var(--text)">${formatMoney(approvedSum)}</strong>
+      </div>
+    `;
+    return;
+  }
+
+  const paidOrders = periodOrders.filter((o) => PAID_STATES.has(o.estado));
+  if (!paidOrders.length) {
+    container.innerHTML = `<div class="empty-state" style="margin:0;min-height:150px"><p>No hay ventas aprobadas en este periodo.</p></div>`;
+    return;
+  }
+
+  if (state.ovSideTab === 'products') {
+    if (titleEl) titleEl.textContent = 'Top productos (aprobados)';
+    if (subEl) subEl.textContent = 'Ordenados por facturación neta';
+    const map = new Map();
+    for (const o of paidOrders) {
+      map.set(o.producto, (map.get(o.producto) || 0) + Number(o.monto || 0));
+    }
+    const rows = Array.from(map.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([label, value]) => ({ label, value }));
+    Charts.barList(container, rows, { format: formatMoney, thin: true });
+    return;
+  }
+
+  if (state.ovSideTab === 'clients') {
+    if (titleEl) titleEl.textContent = 'Clientes principales';
+    if (subEl) subEl.textContent = 'Mayor compra aprobada en el periodo';
+    const map = new Map();
+    for (const o of paidOrders) {
+      map.set(o.cliente, (map.get(o.cliente) || 0) + Number(o.monto || 0));
+    }
+    const rows = Array.from(map.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([label, value]) => ({ label, value }));
+    Charts.barList(container, rows, { format: formatMoney, thin: true });
+  }
+}
+
+// ── Renderizado de Tabla de Órdenes (app-screens.md §7) ──────────────────────
 function renderOrdersTable() {
   const tbody = document.getElementById('orders-tbody');
   const emptyState = document.getElementById('orders-empty-state');
@@ -419,7 +705,6 @@ function renderOrdersTable() {
     countSummary.textContent = `${state.filteredOrders.length} resultado(s) en vista · ${state.orders.length} total en base de datos`;
   }
 
-  // Actualizar indicadores de ordenamiento
   ['id', 'cliente', 'producto', 'fecha', 'monto', 'estado'].forEach((col) => {
     const ind = document.getElementById(`sort-ind-${col}`);
     if (ind) {
@@ -439,10 +724,19 @@ function renderOrdersTable() {
 
   tbody.innerHTML = state.filteredOrders
     .map((o) => {
-      const checked = state.selectedIds.has(o.id) ? 'checked' : '';
+      const isSelected = state.selectedIds.has(o.id);
+      const checked = isSelected ? 'checked' : '';
       const badgeCls = getBadgeClass(o.estado);
+      const isCancelled = o.estado === 'Cancelado';
+      const av = getCustomerAvatarData(o.cliente);
+      const cliSummary = state.clientSummaryMap.get(o.cliente) || { count: 1, paidRevenue: 0 };
+      const cliSubText =
+        cliSummary.count > 1
+          ? `${cliSummary.count} pedidos · ${formatMoneyCompact(cliSummary.paidRevenue)} aprob.`
+          : '1 pedido registrado';
+
       return `
-        <tr data-order-id="${escapeHtml(o.id)}">
+        <tr data-order-id="${escapeHtml(o.id)}" class="${isSelected ? 'selected' : ''}">
           <td class="col-check">
             <input
               type="checkbox"
@@ -452,16 +746,59 @@ function renderOrdersTable() {
               ${checked}
             />
           </td>
-          <td class="col-id">${escapeHtml(o.id)}</td>
-          <td class="col-client">${escapeHtml(o.cliente)}</td>
-          <td class="col-product">${escapeHtml(o.producto)}</td>
-          <td class="col-date">${escapeHtml(o.fecha)}</td>
-          <td class="col-amount">${formatMoney(o.monto)}</td>
+          <td class="col-id">
+            <div class="col-id-wrap">
+              <span class="order-id-code">${escapeHtml(o.id)}</span>
+              <button
+                type="button"
+                class="copy-id-btn btn-copy-order-id"
+                data-order-id="${escapeHtml(o.id)}"
+                title="Copiar ID de referencia"
+                aria-label="Copiar ID ${escapeHtml(o.id)}"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+              </button>
+            </div>
+          </td>
+          <td class="col-client">
+            <div class="client-cell">
+              <span class="client-avatar" style="background-color:${av.bg};color:${av.fg}">
+                ${escapeHtml(av.initials)}
+              </span>
+              <div class="client-texts">
+                <span class="client-name">${escapeHtml(o.cliente)}</span>
+                <span class="client-sub">${escapeHtml(cliSubText)}</span>
+              </div>
+            </div>
+          </td>
+          <td class="col-product">
+            <span class="product-cell-text" title="${escapeHtml(o.producto)}">${escapeHtml(o.producto)}</span>
+          </td>
+          <td class="col-date">
+            <span class="date-cell-main">${escapeHtml(o.fecha)}</span>
+            <span class="date-cell-sub">${escapeHtml(formatShortDate(o.fecha))}</span>
+          </td>
+          <td class="col-amount ${isCancelled ? 'is-cancelled' : ''}">
+            ${formatMoney(o.monto)}
+          </td>
           <td class="col-state">
-            <span class="badge-pill ${badgeCls}">${escapeHtml(o.estado)}</span>
+            <button
+              type="button"
+              class="badge-pill ${badgeCls} btn-row-state-pill"
+              data-order-id="${escapeHtml(o.id)}"
+              title="Clic para cambiar estado"
+            >
+              ${escapeHtml(o.estado)}
+            </button>
           </td>
           <td class="col-actions">
             <div class="row-actions-group">
+              <button type="button" class="row-btn btn-row-inspect" data-order-id="${escapeHtml(o.id)}">
+                Detalle
+              </button>
               <button type="button" class="row-btn btn-row-edit" data-order-id="${escapeHtml(o.id)}">
                 Editar
               </button>
@@ -497,7 +834,57 @@ function updateBulkBar() {
   }
 }
 
-// ── Analítica Comercial (6 Gráficos + KPIs) ──────────────────────────────────
+// ── Drawer Lateral de Inspección de Pedido ───────────────────────────────────
+function openOrderDrawer(orderId) {
+  const order = state.orders.find((o) => o.id === orderId);
+  if (!order) return;
+  state.inspectingOrderId = order.id;
+
+  const backdrop = document.getElementById('order-drawer-backdrop');
+  document.getElementById('drawer-order-title').textContent = `Pedido · ${order.cliente}`;
+  document.getElementById('drawer-order-subtitle').textContent = `Ref. ${order.id} · ${formatShortDate(order.fecha)}`;
+  document.getElementById('drawer-order-amount').textContent = formatMoney(order.monto);
+
+  const badge = document.getElementById('drawer-order-badge');
+  badge.className = `badge-pill ${getBadgeClass(order.estado)}`;
+  badge.textContent = order.estado;
+
+  document.getElementById('drawer-order-id').textContent = order.id;
+  document.getElementById('drawer-order-date').textContent = `${order.fecha} (${formatShortDate(order.fecha)})`;
+
+  const prodBox = document.getElementById('drawer-order-products');
+  const lines = String(order.producto || '')
+    .split(/\r?\n|,|;/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  prodBox.innerHTML = (lines.length ? lines : [order.producto])
+    .map(
+      (line) => `
+      <div class="kv-item">
+        <span class="kv-val" style="font-family:var(--font)">${escapeHtml(line)}</span>
+      </div>
+    `
+    )
+    .join('');
+
+  const cliStats = state.clientSummaryMap.get(order.cliente) || { count: 1, paidCount: 0, paidRevenue: 0 };
+  document.getElementById('drawer-client-name').textContent = order.cliente;
+  document.getElementById('drawer-client-stats').textContent =
+    `${cliStats.count} pedido(s) en total · ${cliStats.paidCount} aprobado(s) por ${formatMoney(cliStats.paidRevenue)}`;
+
+  document.querySelectorAll('#drawer-state-grid .state-quick-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.drawerState === order.estado);
+  });
+
+  backdrop?.classList.remove('hidden');
+}
+
+function closeOrderDrawer() {
+  document.getElementById('order-drawer-backdrop')?.classList.add('hidden');
+  state.inspectingOrderId = null;
+}
+
+// ── Analítica Comercial con Motor SVG (Charts.js) ────────────────────────────
 function getAnalyticsOrders() {
   const year = Number(document.getElementById('an-year-select')?.value || new Date().getFullYear());
   const monthVal = document.getElementById('an-month-select')?.value || 'ALL';
@@ -513,8 +900,9 @@ function getAnalyticsOrders() {
 }
 
 function renderAnalytics() {
-  const { year, orders } = getAnalyticsOrders();
+  const { year, monthVal, orders } = getAnalyticsOrders();
   const paidOrders = orders.filter((o) => PAID_STATES.has(o.estado));
+  const pendingOrders = orders.filter((o) => o.estado === 'Pendiente');
   const totalRev = paidOrders.reduce((acc, o) => acc + Number(o.monto || 0), 0);
   const avgTicket = paidOrders.length > 0 ? totalRev / paidOrders.length : 0;
   const paidRate = orders.length > 0 ? (paidOrders.length / orders.length) * 100 : 0;
@@ -525,7 +913,11 @@ function renderAnalytics() {
   document.getElementById('an-kpi-ticket').textContent = formatMoney(avgTicket);
   document.getElementById('an-kpi-rate').textContent = `${paidRate.toFixed(1)}%`;
 
-  // Producto estrella y mejor cliente
+  const rateSub = document.getElementById('an-kpi-rate-sub');
+  if (rateSub) {
+    rateSub.textContent = `${paidOrders.length} aprobadas de ${orders.length} totales (${pendingOrders.length} pendientes)`;
+  }
+
   const prodRev = new Map();
   const cliRev = new Map();
   for (const o of paidOrders) {
@@ -538,54 +930,63 @@ function renderAnalytics() {
 
   document.getElementById('an-kpi-product').textContent = bestProd ? bestProd[0] : 'Sin registros';
   document.getElementById('an-kpi-product-sub').textContent = bestProd
-    ? `${formatMoney(bestProd[1])} generados`
+    ? `${formatMoney(bestProd[1])} generados (${((bestProd[1] / (totalRev || 1)) * 100).toFixed(0)}% del ingreso)`
     : 'Según ventas pagadas del periodo';
 
   document.getElementById('an-kpi-customer').textContent = bestCli ? bestCli[0] : 'Sin registros';
   document.getElementById('an-kpi-customer-sub').textContent = bestCli
-    ? `${formatMoney(bestCli[1])} acumulados`
+    ? `${formatMoney(bestCli[1])} acumulados (${((bestCli[1] / (totalRev || 1)) * 100).toFixed(0)}% del ingreso)`
     : 'Mayor facturación acumulada';
 
+  const findingEl = document.getElementById('an-finding-text');
+  if (findingEl) {
+    const scopeLabel = monthVal === 'ALL' ? `el año ${year}` : `${MESES[Number(monthVal) - 1]} ${year}`;
+    if (!paidOrders.length) {
+      findingEl.textContent = `Sin ventas aprobadas en ${scopeLabel}. Selecciona otro año o mes para inspeccionar su rendimiento.`;
+    } else {
+      findingEl.innerHTML =
+        `En <strong>${escapeHtml(scopeLabel)}</strong> se aprobaron <strong>${paidOrders.length} órdenes</strong> por <strong>${formatMoney(totalRev)}</strong>` +
+        (bestCli ? ` · Cliente líder: <strong>${escapeHtml(bestCli[0])}</strong> (${formatMoney(bestCli[1])})` : '');
+    }
+  }
+
   renderMonthlyChart(orders, year);
-  renderAnnualChart(year);
-  renderCancelledChart(orders, year);
   renderStatusBreakdownChart(orders);
   renderTopProductsChart(paidOrders);
   renderTopCustomersChart(paidOrders);
+  renderAnnualChart(year);
+  renderCancelledChart(orders, year);
 }
 
 function renderMonthlyChart(orders, year) {
   const monthly = new Array(12).fill(0);
-  for (const o of orders) {
+  for (const o of state.orders) {
     if (String(o.fecha || '').startsWith(String(year)) && PAID_STATES.has(o.estado)) {
       const m = Number(String(o.fecha).slice(5, 7)) - 1;
       if (m >= 0 && m < 12) monthly[m] += Number(o.monto || 0);
     }
   }
   const totalYear = monthly.reduce((a, b) => a + b, 0);
-  document.getElementById('chart-monthly-sub').textContent =
-    `Año ${year} · Total facturado: ${formatMoney(totalYear)}`;
+  const activeMonths = monthly.filter((v) => v > 0);
+  const avgActive = activeMonths.length > 0 ? totalYear / activeMonths.length : 0;
+  const maxVal = Math.max(...monthly, 0);
+  const maxIdx = maxVal > 0 ? monthly.indexOf(maxVal) : null;
 
-  const maxVal = Math.max(...monthly, 1);
+  document.getElementById('chart-monthly-sub').textContent =
+    `Año ${year} · Facturación anual: ${formatMoney(totalYear)}` +
+    (maxIdx != null ? ` · Mes pico: ${MESES[maxIdx]} (${formatMoney(maxVal)})` : '');
+
   const container = document.getElementById('chart-monthly-container');
-  container.innerHTML = `
-    <div class="vbar-chart">
-      ${monthly
-        .map((val, idx) => {
-          const pct = val > 0 ? Math.max(4, Math.round((val / maxVal) * 100)) : 2;
-          return `
-            <div class="vbar-col">
-              <span class="vbar-val">${val > 0 ? formatMoneyCompact(val) : '$0'}</span>
-              <div class="vbar-track">
-                <div class="vbar-fill" style="height: ${pct}%"></div>
-              </div>
-              <span class="vbar-label">${MESES_CORTOS[idx]}</span>
-            </div>
-          `;
-        })
-        .join('')}
-    </div>
-  `;
+  if (window.Charts) {
+    Charts.bars(container, {
+      labels: MESES_CORTOS,
+      values: monthly,
+      format: formatMoneyCompact,
+      height: 196,
+      highlight: maxIdx,
+      reference: avgActive > 0 ? { value: avgActive, label: `Prom. mes activo ${formatMoneyCompact(avgActive)}` } : null,
+    });
+  }
 }
 
 function renderAnnualChart(currentYear) {
@@ -609,134 +1010,136 @@ function renderAnnualChart(currentYear) {
     .slice(-5);
   const totalAll = entries.reduce((acc, [, d]) => acc + d.revenue, 0);
   document.getElementById('chart-annual-sub').textContent =
-    `Acumulado histórico: ${formatMoney(totalAll)}`;
+    `Acumulado últimos 5 años: ${formatMoney(totalAll)}`;
 
-  const maxRev = Math.max(...entries.map(([, d]) => d.revenue), 1);
   const container = document.getElementById('chart-annual-container');
-  container.innerHTML = `
-    <div class="vbar-chart">
-      ${entries
-        .map(([yr, d]) => {
-          const pct = d.revenue > 0 ? Math.max(5, Math.round((d.revenue / maxRev) * 100)) : 2;
-          const cls = yr === currentYear ? 'vbar-fill fill-cafeto' : 'vbar-fill';
-          return `
-            <div class="vbar-col">
-              <span class="vbar-val">${formatMoneyCompact(d.revenue)}<br/><small>(${d.count} ord.)</small></span>
-              <div class="vbar-track">
-                <div class="${cls}" style="height: ${pct}%"></div>
-              </div>
-              <span class="vbar-label">${yr}</span>
-            </div>
-          `;
-        })
-        .join('')}
-    </div>
-  `;
+  const labels = entries.map(([yr]) => String(yr));
+  const values = entries.map(([, d]) => d.revenue);
+  const curIdx = entries.findIndex(([yr]) => yr === currentYear);
+
+  if (window.Charts) {
+    Charts.bars(container, {
+      labels,
+      values,
+      format: formatMoneyCompact,
+      height: 180,
+      highlight: curIdx >= 0 ? curIdx : null,
+    });
+  }
 }
 
 function renderCancelledChart(orders, year) {
   const counts = new Array(12).fill(0);
-  for (const o of orders) {
+  let cancelledAmount = 0;
+  for (const o of state.orders) {
     if (String(o.fecha || '').startsWith(String(year)) && o.estado === 'Cancelado') {
       const m = Number(String(o.fecha).slice(5, 7)) - 1;
-      if (m >= 0 && m < 12) counts[m] += 1;
+      if (m >= 0 && m < 12) {
+        counts[m] += 1;
+        cancelledAmount += Number(o.monto || 0);
+      }
     }
   }
   const totalCanc = counts.reduce((a, b) => a + b, 0);
   document.getElementById('chart-cancelled-sub').textContent =
-    `Año ${year} · Total canceladas: ${totalCanc}`;
+    `Año ${year} · ${totalCanc} cancelada(s) (${formatMoney(cancelledAmount)} excluidos del ingreso)`;
 
-  const maxC = Math.max(...counts, 1);
   const container = document.getElementById('chart-cancelled-container');
-  container.innerHTML = `
-    <div class="vbar-chart">
-      ${counts
-        .map((c, idx) => {
-          const pct = c > 0 ? Math.max(6, Math.round((c / maxC) * 100)) : 2;
-          return `
-            <div class="vbar-col">
-              <span class="vbar-val">${c}</span>
-              <div class="vbar-track">
-                <div class="vbar-fill fill-danger" style="height: ${pct}%"></div>
-              </div>
-              <span class="vbar-label">${MESES_CORTOS[idx]}</span>
-            </div>
-          `;
-        })
-        .join('')}
-    </div>
-  `;
+  if (window.Charts) {
+    const maxC = Math.max(...counts, 0);
+    const maxIdx = maxC > 0 ? counts.indexOf(maxC) : null;
+    Charts.bars(container, {
+      labels: MESES_CORTOS,
+      values: counts,
+      format: Charts.fmt.int,
+      height: 180,
+      highlight: maxIdx,
+      colour: 'var(--negative)',
+    });
+  }
 }
 
 function renderStatusBreakdownChart(orders) {
   const container = document.getElementById('chart-status-container');
   if (!orders.length) {
-    container.innerHTML = `<p class="chart-subtitle">No hay órdenes en este periodo para calcular distribución.</p>`;
+    container.innerHTML = `<div class="empty-state" style="margin:0"><p>No hay órdenes en este periodo para calcular distribución.</p></div>`;
     return;
   }
-  const counts = new Map();
+
+  const paidCount = orders.filter((o) => PAID_STATES.has(o.estado)).length;
+  const paidRatio = paidCount / orders.length;
+
+  const statusMap = new Map();
   for (const o of orders) {
-    const st = o.estado || 'Desconocido';
-    counts.set(st, (counts.get(st) || 0) + 1);
+    const st = o.estado || 'Pendiente';
+    const cur = statusMap.get(st) || { count: 0, amount: 0 };
+    cur.count += 1;
+    cur.amount += Number(o.monto || 0);
+    statusMap.set(st, cur);
   }
-  const list = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  const rows = Array.from(statusMap.entries()).sort((a, b) => b[1].count - a[1].count);
+
   container.innerHTML = `
-    <div class="hbar-list">
-      ${list
-        .map(([st, cnt]) => {
-          const pct = ((cnt / orders.length) * 100).toFixed(1);
-          return `
-            <div class="hbar-item">
-              <div class="hbar-top">
-                <span class="hbar-name">${escapeHtml(st)}</span>
-                <span class="hbar-metric">${cnt} órdenes (${pct}%)</span>
-              </div>
-              <div class="hbar-track">
-                <div class="hbar-fill" style="width: ${pct}%"></div>
-              </div>
-            </div>
-          `;
-        })
-        .join('')}
+    <div class="ring-breakdown-layout">
+      <div id="an-status-ring-host"></div>
+      <table class="mini-legend-table">
+        <thead>
+          <tr>
+            <th>Estado</th>
+            <th class="n">Órd.</th>
+            <th class="n">Monto</th>
+            <th class="n">%</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows
+            .map(([st, d]) => {
+              const pct = ((d.count / orders.length) * 100).toFixed(0);
+              return `
+                <tr>
+                  <td><span class="badge-pill ${getBadgeClass(st)}" style="height:20px;font-size:11px;padding:0 7px">${escapeHtml(st)}</span></td>
+                  <td class="n">${d.count}</td>
+                  <td class="n">${formatMoneyCompact(d.amount)}</td>
+                  <td class="n">${pct}%</td>
+                </tr>
+              `;
+            })
+            .join('')}
+        </tbody>
+      </table>
     </div>
   `;
+
+  const ringHost = document.getElementById('an-status-ring-host');
+  if (ringHost && window.Charts) {
+    Charts.ring(ringHost, {
+      value: paidRatio,
+      label: `${Math.round(paidRatio * 100)}%`,
+      sub: 'aprobadas',
+      size: 94,
+      stroke: 7,
+    });
+  }
 }
 
 function renderTopProductsChart(paidOrders) {
   const container = document.getElementById('chart-products-container');
   if (!paidOrders.length) {
-    container.innerHTML = `<p class="chart-subtitle">No hay ventas pagadas en el periodo seleccionado.</p>`;
+    container.innerHTML = `<div class="empty-state" style="margin:0"><p>No hay ventas aprobadas en el periodo seleccionado.</p></div>`;
     return;
   }
   const map = new Map();
   for (const o of paidOrders) {
     map.set(o.producto, (map.get(o.producto) || 0) + Number(o.monto || 0));
   }
-  const top5 = Array.from(map.entries())
+  const top = Array.from(map.entries())
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-  const maxVal = Math.max(...top5.map(([, v]) => v), 1);
+    .slice(0, 6)
+    .map(([label, value]) => ({ label, value }));
 
-  container.innerHTML = `
-    <div class="hbar-list">
-      ${top5
-        .map(([prod, val]) => {
-          const pct = Math.max(4, Math.round((val / maxVal) * 100));
-          return `
-            <div class="hbar-item">
-              <div class="hbar-top">
-                <span class="hbar-name">${escapeHtml(prod)}</span>
-                <span class="hbar-metric">${formatMoney(val)}</span>
-              </div>
-              <div class="hbar-track">
-                <div class="hbar-fill" style="width: ${pct}%"></div>
-              </div>
-            </div>
-          `;
-        })
-        .join('')}
-    </div>
-  `;
+  if (window.Charts) {
+    Charts.barList(container, top, { format: formatMoney });
+  }
 }
 
 function renderTopCustomersChart(paidOrders) {
@@ -746,7 +1149,7 @@ function renderTopCustomersChart(paidOrders) {
 
   if (!paidOrders.length) {
     state.topCustomersSnapshot = [];
-    container.innerHTML = `<p class="chart-subtitle">No hay clientes con órdenes pagadas en este periodo.</p>`;
+    container.innerHTML = `<div class="empty-state" style="margin:0"><p>No hay clientes con órdenes aprobadas en este periodo.</p></div>`;
     return;
   }
 
@@ -763,31 +1166,16 @@ function renderTopCustomersChart(paidOrders) {
     .slice(0, limit);
 
   state.topCustomersSnapshot = topList.map(([name]) => name);
-  const maxVal = Math.max(...topList.map(([, d]) => d.revenue), 1);
 
-  container.innerHTML = `
-    <div class="hbar-list">
-      ${topList
-        .map(([cli, d], idx) => {
-          const pct = Math.max(4, Math.round((d.revenue / maxVal) * 100));
-          const metricLabel = hideAmounts
-            ? `${d.count} pedido(s)`
-            : `${formatMoney(d.revenue)} · ${d.count} pedido(s)`;
-          return `
-            <div class="hbar-item">
-              <div class="hbar-top">
-                <span class="hbar-name">${idx + 1}. ${escapeHtml(cli)}</span>
-                <span class="hbar-metric">${metricLabel}</span>
-              </div>
-              <div class="hbar-track">
-                <div class="hbar-fill" style="width: ${pct}%"></div>
-              </div>
-            </div>
-          `;
-        })
-        .join('')}
-    </div>
-  `;
+  if (window.Charts) {
+    const rows = topList.map(([cli, d], idx) => ({
+      label: `${idx + 1}. ${cli} (${d.count} ord.)`,
+      value: hideAmounts ? d.count : d.revenue,
+    }));
+    Charts.barList(container, rows, {
+      format: hideAmounts ? (v) => `${v} ped.` : formatMoney,
+    });
+  }
 }
 
 // ── Reportes PDF y Excel ─────────────────────────────────────────────────────
@@ -824,7 +1212,7 @@ function renderReportsList() {
             <button type="button" class="btn btn-sm btn-outline btn-report-folder" data-path="${escapeHtml(r.path)}">
               Ver en carpeta
             </button>
-            <button type="button" class="btn btn-sm btn-roast btn-report-open" data-path="${escapeHtml(r.path)}">
+            <button type="button" class="btn btn-sm btn-primary btn-report-open" data-path="${escapeHtml(r.path)}">
               Abrir documento
             </button>
           </div>
@@ -905,7 +1293,7 @@ function renderSystemView() {
 
   const knownContainer = document.getElementById('known-sources-list');
   if (!state.knownLegacySources.length) {
-    knownContainer.innerHTML = `<p class="system-desc">No se detectaron otras carpetas pendientes por migrar. Puedes seleccionar cualquier carpeta o archivo <code>orders.db</code> manualmente.</p>`;
+    knownContainer.innerHTML = `<p class="panel-subtitle">No se detectaron otras carpetas pendientes por migrar. Puedes seleccionar cualquier carpeta o archivo <code>orders.db</code> manualmente.</p>`;
     return;
   }
 
@@ -917,8 +1305,8 @@ function renderSystemView() {
           <strong>${escapeHtml(src.sourceLabel)}</strong>
           <span>${src.ordersCount} pedido(s) · ${src.reportsCount} reporte(s) ${src.dateRange ? `· (${escapeHtml(src.dateRange)})` : ''}</span>
         </div>
-        <button type="button" class="btn btn-sm btn-cafeto btn-import-known" data-source-path="${escapeHtml(src.sourceLabel)}">
-          Importar y Fusionar
+        <button type="button" class="btn btn-sm btn-primary btn-import-known" data-source-path="${escapeHtml(src.sourceLabel)}">
+          Importar y fusionar
         </button>
       </div>
     `
@@ -1037,6 +1425,9 @@ function openConfirmDeleteModal(orderIds) {
       state.orders = res.orders;
       state.stats = res.stats || state.stats;
       orderIds.forEach((id) => state.selectedIds.delete(id));
+      if (state.inspectingOrderId && orderIds.includes(state.inspectingOrderId)) {
+        closeOrderDrawer();
+      }
       applyFiltersAndRender();
       showToast(`Se eliminaron ${res.deletedCount} pedido(s).`);
     }
@@ -1074,9 +1465,9 @@ function updateConnectionUi(connPayload) {
     document.getElementById('qr-modal-backdrop')?.classList.add('hidden');
     if (autoBtn) {
       autoBtn.textContent = autoSyncActive
-        ? 'Sincronización Automática: Activa'
-        : 'Activar Sincronización Automática';
-      autoBtn.classList.toggle('paused', !autoSyncActive);
+        ? 'Auto-sync: Activa (20s)'
+        : 'Activar Auto-sync (20s)';
+      autoBtn.classList.toggle('btn-accent', autoSyncActive);
     }
   } else {
     discActions.classList.remove('hidden');
@@ -1084,7 +1475,7 @@ function updateConnectionUi(connPayload) {
   }
 }
 
-// ── Menú Contextual (Click Derecho en fila de la tabla) ──────────────────────
+// ── Menú Contextual (Click Derecho o Píldora de Estado) ──────────────────────
 function openRowContextMenu(x, y, orderId) {
   state.contextMenuOrderId = orderId;
   const menu = document.getElementById('row-context-menu');
@@ -1106,6 +1497,38 @@ function closeRowContextMenu() {
   state.contextMenuOrderId = null;
 }
 
+// ── Atajos de Periodo en el Panel ────────────────────────────────────────────
+function applyPeriodPreset(preset) {
+  state.periodPreset = preset;
+  document.querySelectorAll('[data-period-preset]').forEach((b) => {
+    b.classList.toggle('active', b.dataset.periodPreset === preset);
+  });
+
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const toIso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+  const inputFrom = document.getElementById('filter-date-from');
+  const inputTo = document.getElementById('filter-date-to');
+
+  if (preset === 'all') {
+    const dates = state.orders.map((o) => o.fecha).filter(Boolean).sort();
+    inputFrom.value = dates[0] || '2020-01-01';
+    inputTo.value = dates[dates.length - 1] > todayIso() ? dates[dates.length - 1] : todayIso();
+  } else if (preset === 'year') {
+    inputFrom.value = `${now.getFullYear()}-01-01`;
+    inputTo.value = todayIso();
+  } else if (preset === 'month') {
+    inputFrom.value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+    inputTo.value = todayIso();
+  } else if (preset === '30d') {
+    const d30 = new Date(now.getTime() - 30 * 86400000);
+    inputFrom.value = toIso(d30);
+    inputTo.value = todayIso();
+  }
+  applyFiltersAndRender();
+}
+
 // ── Registro de Eventos DOM ──────────────────────────────────────────────────
 function bindDomEvents() {
   // Navegación lateral
@@ -1118,6 +1541,81 @@ function bindDomEvents() {
     const next = state.theme === 'dark' ? 'light' : 'dark';
     applyTheme(next);
     await api.saveSettings({ theme: next });
+  });
+
+  // Búsqueda global en la barra superior (sincronizada con la búsqueda de la tabla)
+  const globalSearch = document.getElementById('global-search-input');
+  const tableSearch = document.getElementById('filter-search');
+
+  globalSearch?.addEventListener('input', (e) => {
+    state.searchQuery = e.target.value || '';
+    if (tableSearch) tableSearch.value = state.searchQuery;
+    if (state.currentView !== 'panel') switchView('panel');
+    applyFiltersAndRender();
+  });
+
+  // Modo de vista del Dashboard (Resumen + Tabla vs Solo Tabla)
+  const btnModeFull = document.getElementById('btn-viewmode-full');
+  const btnModeTable = document.getElementById('btn-viewmode-table');
+  btnModeFull?.addEventListener('click', () => {
+    state.dashboardLayout = 'full';
+    btnModeFull.classList.add('active');
+    btnModeFull.setAttribute('aria-pressed', 'true');
+    btnModeTable?.classList.remove('active');
+    btnModeTable?.setAttribute('aria-pressed', 'false');
+    renderOverviewDashboard(state.periodOrders);
+  });
+  btnModeTable?.addEventListener('click', () => {
+    state.dashboardLayout = 'table';
+    btnModeTable.classList.add('active');
+    btnModeTable.setAttribute('aria-pressed', 'true');
+    btnModeFull?.classList.remove('active');
+    btnModeFull?.setAttribute('aria-pressed', 'false');
+    renderOverviewDashboard(state.periodOrders);
+  });
+
+  // Selectores de métrica y agrupación de la gráfica del Dashboard
+  document.querySelectorAll('[data-ov-metric]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.ovChartMetric = btn.dataset.ovMetric;
+      document.querySelectorAll('[data-ov-metric]').forEach((b) => {
+        const act = b.dataset.ovMetric === state.ovChartMetric;
+        b.classList.toggle('active', act);
+        b.setAttribute('aria-pressed', act ? 'true' : 'false');
+      });
+      renderOverviewMainChart(state.periodOrders);
+    });
+  });
+
+  document.querySelectorAll('[data-ov-group]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.ovChartGroup = btn.dataset.ovGroup;
+      document.querySelectorAll('[data-ov-group]').forEach((b) => {
+        const act = b.dataset.ovGroup === state.ovChartGroup;
+        b.classList.toggle('active', act);
+        b.setAttribute('aria-pressed', act ? 'true' : 'false');
+      });
+      renderOverviewMainChart(state.periodOrders);
+    });
+  });
+
+  document.querySelectorAll('[data-ov-side]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.ovSideTab = btn.dataset.ovSide;
+      document.querySelectorAll('[data-ov-side]').forEach((b) => {
+        const act = b.dataset.ovSide === state.ovSideTab;
+        b.classList.toggle('active', act);
+        b.setAttribute('aria-pressed', act ? 'true' : 'false');
+      });
+      renderOverviewSidePanel(state.periodOrders);
+    });
+  });
+
+  // Atajos de periodo
+  document.querySelectorAll('[data-period-preset]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      applyPeriodPreset(btn.dataset.periodPreset);
+    });
   });
 
   // Botones superiores
@@ -1137,7 +1635,7 @@ function bindDomEvents() {
     document.getElementById('migration-banner')?.classList.add('hidden');
   });
 
-  // Tarjetas de filtro rápido por estado
+  // Tarjetas de filtro rápido por estado en la banda de KPIs
   document.querySelectorAll('.metric-tile').forEach((tile) => {
     tile.addEventListener('click', () => {
       const f = tile.dataset.stateFilter || 'ALL';
@@ -1150,19 +1648,7 @@ function bindDomEvents() {
 
   // Controles de filtro en Panel
   document.getElementById('btn-apply-dates')?.addEventListener('click', () => {
-    applyFiltersAndRender();
-  });
-
-  document.getElementById('btn-all-dates')?.addEventListener('click', () => {
-    const dates = state.orders.map((o) => o.fecha).filter(Boolean).sort();
-    const minD = dates[0] || '2020-01-01';
-    const maxD = dates[dates.length - 1] || todayIso();
-    document.getElementById('filter-date-from').value = minD;
-    document.getElementById('filter-date-to').value = maxD > todayIso() ? maxD : todayIso();
-    state.stateFilter = 'ALL';
-    state.searchQuery = '';
-    document.getElementById('filter-search').value = '';
-    document.getElementById('filter-state-select').value = 'ALL';
+    document.querySelectorAll('[data-period-preset]').forEach((b) => b.classList.remove('active'));
     applyFiltersAndRender();
   });
 
@@ -1173,11 +1659,13 @@ function bindDomEvents() {
     const pad = (n) => String(n).padStart(2, '0');
     document.getElementById('filter-date-from').value = `${y}-${pad(m)}-01`;
     document.getElementById('filter-date-to').value = `${y}-${pad(m)}-${pad(lastDay)}`;
+    document.querySelectorAll('[data-period-preset]').forEach((b) => b.classList.remove('active'));
     applyFiltersAndRender();
   });
 
-  document.getElementById('filter-search')?.addEventListener('input', (e) => {
+  tableSearch?.addEventListener('input', (e) => {
     state.searchQuery = e.target.value || '';
+    if (globalSearch) globalSearch.value = state.searchQuery;
     applyFiltersAndRender();
   });
 
@@ -1218,16 +1706,38 @@ function bindDomEvents() {
     const id = chk.dataset.orderId;
     if (chk.checked) state.selectedIds.add(id);
     else state.selectedIds.delete(id);
-    updateBulkBar();
+    renderOrdersTable();
   });
 
-  tbody?.addEventListener('click', (e) => {
+  tbody?.addEventListener('click', async (e) => {
+    const copyBtn = e.target.closest('.btn-copy-order-id');
+    if (copyBtn) {
+      const id = copyBtn.dataset.orderId;
+      await api.copyToClipboard(id);
+      showToast(`Referencia ${id} copiada al portapapeles.`);
+      return;
+    }
+
+    const statePill = e.target.closest('.btn-row-state-pill');
+    if (statePill) {
+      const rect = statePill.getBoundingClientRect();
+      openRowContextMenu(rect.left, rect.bottom + 4, statePill.dataset.orderId);
+      return;
+    }
+
+    const inspectBtn = e.target.closest('.btn-row-inspect');
+    if (inspectBtn) {
+      openOrderDrawer(inspectBtn.dataset.orderId);
+      return;
+    }
+
     const editBtn = e.target.closest('.btn-row-edit');
     if (editBtn) {
       const order = state.orders.find((o) => o.id === editBtn.dataset.orderId);
       if (order) openOrderModal(order);
       return;
     }
+
     const delBtn = e.target.closest('.btn-row-delete');
     if (delBtn) {
       openConfirmDeleteModal([delBtn.dataset.orderId]);
@@ -1238,8 +1748,7 @@ function bindDomEvents() {
     if (e.target.closest('button, input')) return;
     const tr = e.target.closest('tr[data-order-id]');
     if (!tr) return;
-    const order = state.orders.find((o) => o.id === tr.dataset.orderId);
-    if (order) openOrderModal(order);
+    openOrderDrawer(tr.dataset.orderId);
   });
 
   tbody?.addEventListener('contextmenu', (e) => {
@@ -1247,6 +1756,55 @@ function bindDomEvents() {
     if (!tr) return;
     e.preventDefault();
     openRowContextMenu(e.clientX, e.clientY, tr.dataset.orderId);
+  });
+
+  // Eventos del Drawer de Detalle
+  document.getElementById('btn-close-drawer')?.addEventListener('click', closeOrderDrawer);
+  document.getElementById('order-drawer-backdrop')?.addEventListener('click', (e) => {
+    if (e.target.id === 'order-drawer-backdrop') closeOrderDrawer();
+  });
+
+  document.getElementById('drawer-state-grid')?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.state-quick-btn');
+    if (!btn || !state.inspectingOrderId) return;
+    const newState = btn.dataset.drawerState;
+    const res = await api.changeOrdersState([state.inspectingOrderId], newState);
+    if (res.ok) {
+      state.orders = res.orders;
+      applyFiltersAndRender();
+      openOrderDrawer(state.inspectingOrderId);
+      showToast(`Estado actualizado a "${newState}".`);
+    }
+  });
+
+  document.getElementById('btn-drawer-copy')?.addEventListener('click', async () => {
+    const order = state.orders.find((o) => o.id === state.inspectingOrderId);
+    if (!order) return;
+    const receipt = [
+      "Café Pa'l Monte · Comprobante de Pedido",
+      `Referencia: ${order.id}`,
+      `Cliente: ${order.cliente}`,
+      `Producto(s): ${order.producto}`,
+      `Monto: ${formatMoney(order.monto)}`,
+      `Fecha: ${order.fecha}`,
+      `Estado: ${order.estado}`,
+    ].join('\n');
+    await api.copyToClipboard(receipt);
+    showToast('Comprobante copiado al portapapeles.');
+  });
+
+  document.getElementById('btn-drawer-edit')?.addEventListener('click', () => {
+    const order = state.orders.find((o) => o.id === state.inspectingOrderId);
+    if (order) {
+      closeOrderDrawer();
+      openOrderModal(order);
+    }
+  });
+
+  document.getElementById('btn-drawer-delete')?.addEventListener('click', () => {
+    if (state.inspectingOrderId) {
+      openConfirmDeleteModal([state.inspectingOrderId]);
+    }
   });
 
   // Acciones en lote
@@ -1272,7 +1830,13 @@ function bindDomEvents() {
 
   // Estado vacío acciones rápidas
   document.getElementById('btn-empty-show-all')?.addEventListener('click', () => {
-    document.getElementById('btn-all-dates')?.click();
+    state.stateFilter = 'ALL';
+    state.searchQuery = '';
+    if (tableSearch) tableSearch.value = '';
+    if (globalSearch) globalSearch.value = '';
+    const sel = document.getElementById('filter-state-select');
+    if (sel) sel.value = 'ALL';
+    applyPeriodPreset('all');
   });
   document.getElementById('btn-empty-add-manual')?.addEventListener('click', () => {
     openOrderModal(null);
@@ -1315,6 +1879,7 @@ function bindDomEvents() {
       return showErr('Selecciona una fecha válida (YYYY-MM-DD).');
     }
 
+    const isEdit = Boolean(state.editingOrder);
     const res = await api.upsertOrder(
       {
         id,
@@ -1325,7 +1890,7 @@ function bindDomEvents() {
         fecha,
         estado,
       },
-      Boolean(state.editingOrder)
+      isEdit
     );
 
     if (!res.ok) {
@@ -1337,7 +1902,7 @@ function bindDomEvents() {
     closeOrderModal();
     adjustDefaultDateRangeToOrders();
     applyFiltersAndRender();
-    showToast(state.editingOrder ? 'Pedido actualizado.' : 'Pedido registrado correctamente.');
+    showToast(isEdit ? 'Pedido actualizado.' : 'Pedido registrado correctamente.');
   });
 
   // Modal Confirmación
@@ -1354,7 +1919,9 @@ function bindDomEvents() {
     const targetId = state.contextMenuOrderId;
     closeRowContextMenu();
 
-    if (btn.dataset.ctxAction === 'edit') {
+    if (btn.dataset.ctxAction === 'inspect') {
+      openOrderDrawer(targetId);
+    } else if (btn.dataset.ctxAction === 'edit') {
       const order = state.orders.find((o) => o.id === targetId);
       if (order) openOrderModal(order);
     } else if (btn.dataset.ctxAction === 'delete') {
@@ -1371,15 +1938,26 @@ function bindDomEvents() {
   });
 
   document.addEventListener('click', (e) => {
-    if (!e.target.closest('#row-context-menu')) {
+    if (!e.target.closest('#row-context-menu') && !e.target.closest('.btn-row-state-pill')) {
       closeRowContextMenu();
     }
   });
 
-  // Cerrar modales y menú con tecla Escape (R-26, R-32)
+  // Atajos de teclado (/ para buscar, Escape para cerrar paneles)
   document.addEventListener('keydown', (e) => {
+    if (
+      e.key === '/' &&
+      !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName || '')
+    ) {
+      e.preventDefault();
+      globalSearch?.focus();
+      globalSearch?.select();
+      return;
+    }
+
     if (e.key === 'Escape') {
       closeRowContextMenu();
+      closeOrderDrawer();
       closeOrderModal();
       closeConfirmModal();
       if (!document.getElementById('qr-modal-backdrop')?.classList.contains('hidden')) {
@@ -1715,13 +2293,11 @@ async function bootstrap() {
     if (logoImg) logoImg.src = init.logoDataUrl;
   }
 
-  document.getElementById('app-version-label').textContent =
-    `v${state.version} · Edición Escritorio`;
+  document.getElementById('app-version-label').textContent = `v${state.version} · Escritorio`;
 
   applyTheme(init.settings?.theme || 'light');
   updateConnectionUi(init.connection || { connected: false });
 
-  // Si la migración automática inicial importó pedidos o reportes, mostrar banner informativo
   if (
     init.autoMigration &&
     init.autoMigration.ran &&
