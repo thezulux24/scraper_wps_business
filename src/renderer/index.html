@@ -667,14 +667,14 @@
               </div>
             </article>
 
-            <!-- Tarjeta 3: Wizard de Instalación y Actualización -->
+            <!-- Tarjeta 3: Wizard de Instalación, Actualización y Desinstalación -->
             <article class="system-card system-card-full">
               <div class="system-card-header">
-                <h2>Asistente de Actualización del Sistema (Update Wizard)</h2>
+                <h2>Asistente de Actualización y Desinstalación (Wizard)</h2>
                 <span class="badge-pill badge-enviado" id="sys-version-pill">Versión instalada: v2.0.0</span>
               </div>
               <p class="system-desc">
-                Para actualizar la aplicación cuando publiques una nueva versión (<code>CafePalMonte_Setup_v2.x.x.exe</code>), puedes ejecutar directamente el instalador o cargarlo desde aquí. El sistema creará un respaldo automático de <code>orders.db</code>, cerrará la ventana actual y abrirá el Wizard de actualización conservando intactos todos los datos.
+                Para actualizar la aplicación cuando publiques una nueva versión (<code>CafePalMonte_Setup_v2.x.x.exe</code>), puedes ejecutar directamente el instalador o cargarlo desde aquí. También puedes iniciar el Wizard de desinstalación de Windows conservando intacta tu base de datos de pedidos.
               </p>
               <div class="system-actions-row">
                 <button type="button" class="btn btn-roast" id="btn-run-update-wizard">
@@ -682,6 +682,9 @@
                 </button>
                 <button type="button" class="btn btn-outline" id="btn-check-github-updates">
                   Verificar estado de versión
+                </button>
+                <button type="button" class="btn btn-danger" id="btn-run-uninstaller">
+                  Desinstalar Aplicación (Abrir Wizard)
                 </button>
               </div>
               <p class="system-status-note hidden" id="updater-status-note"></p>

@@ -117,6 +117,7 @@ const api = window.cafeApi || {
   openDataFolder: async () => ({ ok: true }),
   checkForUpdates: async () => ({ ok: true, updateAvailable: false, message: 'Versión v2.0.0 al día.' }),
   runUpdateWizardFile: async () => ({ canceled: true }),
+  runUninstallerWizard: async () => ({ ok: true }),
   onStatus: () => {},
   onConnectionState: () => {},
   onQrUpdate: () => {},
@@ -1013,7 +1014,11 @@ function generateOrderId() {
 function openConfirmDeleteModal(orderIds) {
   if (!orderIds || !orderIds.length) return;
   const backdrop = document.getElementById('confirm-modal-backdrop');
+  const titleEl = document.getElementById('confirm-modal-title');
   const msg = document.getElementById('confirm-modal-message');
+  const confirmBtn = document.getElementById('btn-confirm-action');
+  if (titleEl) titleEl.textContent = 'Confirmar eliminación';
+  if (confirmBtn) confirmBtn.textContent = 'Eliminar';
   msg.textContent = `¿Confirmas que deseas eliminar ${orderIds.length} pedido(s)? Quedarán marcados como descartados para que la sincronización de WhatsApp no los vuelva a importar.`;
 
   state.confirmActionCallback = async () => {
@@ -1504,6 +1509,34 @@ function bindDomEvents() {
     note.classList.remove('hidden');
     const res = await api.checkForUpdates();
     note.textContent = res.message || `Versión instalada v${state.version} operativa.`;
+  });
+
+  document.getElementById('btn-run-uninstaller')?.addEventListener('click', () => {
+    const backdrop = document.getElementById('confirm-modal-backdrop');
+    const titleEl = document.getElementById('confirm-modal-title');
+    const msgEl = document.getElementById('confirm-modal-message');
+    const confirmBtn = document.getElementById('btn-confirm-action');
+    if (titleEl) titleEl.textContent = 'Confirmar desinstalación';
+    if (msgEl) {
+      msgEl.textContent =
+        "¿Deseas abrir el Wizard de desinstalación de Café Pa'l Monte? El sistema creará un respaldo automático de orders.db y conservará tus pedidos en tu carpeta de datos de usuario.";
+    }
+    if (confirmBtn) confirmBtn.textContent = 'Abrir Wizard de Desinstalación';
+
+    state.confirmActionCallback = async () => {
+      closeConfirmModal();
+      const res = await api.runUninstallerWizard();
+      if (res && res.openedSettings) {
+        const note = document.getElementById('updater-status-note');
+        if (note) {
+          note.textContent = res.message;
+          note.classList.remove('hidden');
+        }
+      } else {
+        showToast('Respaldo creado. Iniciando Wizard de desinstalación...');
+      }
+    };
+    backdrop?.classList.remove('hidden');
   });
 }
 

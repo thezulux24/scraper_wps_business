@@ -52,6 +52,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Cafe Pa'l Monte",
+      "include": "scripts/installer.nsh",
       "deleteAppDataOnUninstall": false,
       "runAfterFinish": true
     },

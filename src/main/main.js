@@ -441,6 +441,49 @@ function registerIpcHandlers() {
 
     return { ok: true, backupPath, launched: installerExe };
   });
+
+  ipcMain.handle('updater:runUninstaller', async () => {
+    const candidates = [
+      path.join(path.dirname(process.execPath), "Uninstall Cafe Pa'l Monte.exe"),
+      "C:\\Program Files\\cafe-pal-monte-desktop\\Uninstall Cafe Pa'l Monte.exe",
+      path.join(
+        process.env.LOCALAPPDATA || '',
+        'Programs',
+        'cafe-pal-monte-desktop',
+        "Uninstall Cafe Pa'l Monte.exe"
+      ),
+    ];
+
+    const uninstallerExe = candidates.find((p) => p && fs.existsSync(p));
+    const backupPath = db.createBackup('pre_desinstalacion');
+
+    if (!uninstallerExe) {
+      await shell.openExternal('ms-settings:appsfeatures');
+      return {
+        ok: false,
+        openedSettings: true,
+        backupPath,
+        message:
+          'Se abrió el panel de Aplicaciones instaladas de Windows (y se creó un respaldo preventivo de orders.db).',
+      };
+    }
+
+    if (scraper) {
+      await scraper.disconnect();
+    }
+
+    const child = spawn(uninstallerExe, [], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+
+    setTimeout(() => {
+      app.quit();
+    }, 450);
+
+    return { ok: true, backupPath, launched: uninstallerExe };
+  });
 }
 
 app.whenReady().then(() => {

@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('cafeApi', {
   openDataFolder: () => ipcRenderer.invoke('migration:openDataFolder'),
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),
   runUpdateWizardFile: () => ipcRenderer.invoke('updater:runWizardFile'),
+  runUninstallerWizard: () => ipcRenderer.invoke('updater:runUninstaller'),
 
   // Eventos en tiempo real
   onStatus: (cb) => {
