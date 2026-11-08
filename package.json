@@ -38,6 +38,7 @@
         }
       ],
       "icon": "app/assets/app.ico",
+      "signAndEditExecutable": false,
       "artifactName": "CafePalMonte_Setup_v${version}.${ext}"
     },
     "nsis": {

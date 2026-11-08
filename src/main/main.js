@@ -80,6 +80,41 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
+  if (process.argv.includes('--smoke-test')) {
+    mainWindow.webContents.on('did-finish-load', () => {
+      setTimeout(async () => {
+        try {
+          const domSnapshot = await mainWindow.webContents.executeJavaScript(`({
+            title: document.title,
+            totalRevenue: document.getElementById('kpi-total-revenue')?.textContent || '',
+            ordersBadge: document.getElementById('nav-orders-badge')?.textContent || '',
+            statusRight: document.getElementById('statusbar-db-summary')?.textContent || '',
+            rowsCount: document.querySelectorAll('#orders-tbody tr').length
+          })`);
+          const image = await mainWindow.webContents.capturePage();
+          const outDir = path.join(DATA_DIR, 'smoke');
+          fs.mkdirSync(outDir, { recursive: true });
+          fs.writeFileSync(path.join(outDir, 'packaged-window.png'), image.toPNG());
+          fs.writeFileSync(
+            path.join(outDir, 'packaged-report.json'),
+            JSON.stringify({ ok: true, version: app.getVersion(), domSnapshot }, null, 2),
+            'utf8'
+          );
+          app.exit(0);
+        } catch (err) {
+          const outDir = path.join(DATA_DIR, 'smoke');
+          fs.mkdirSync(outDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(outDir, 'packaged-report.json'),
+            JSON.stringify({ ok: false, error: err.message }, null, 2),
+            'utf8'
+          );
+          app.exit(1);
+        }
+      }, 1500);
+    });
+  }
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
