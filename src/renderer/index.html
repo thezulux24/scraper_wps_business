@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Café Pa'l Monte · Gestión de Pedidos y Analítica</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- BARRA LATERAL -->
+    <aside class="sidebar" aria-label="Barra lateral de navegación y conexión">
+      <div class="brand-header">
+        <img
+          id="brand-logo"
+          class="brand-logo"
+          src="../../app/assets/logo.jpg"
+          alt="Logo de Café Pa'l Monte"
+          width="48"
+          height="48"
+          fetchpriority="high"
+        />
+        <div class="brand-titles">
+          <span class="brand-name">Café Pa'l Monte</span>
+          <span class="brand-meta">San Antonio, Jamundí · NIT 6.559.455-1</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav" aria-label="Navegación principal">
+        <div class="nav-group-label">Operación</div>
+        <button type="button" class="nav-btn active" data-view="panel" id="nav-panel">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <rect x="2.5" y="3" width="15" height="14" rx="2" />
+            <path d="M2.5 7.5h15M7.5 7.5V17" />
+          </svg>
+          <span>Panel de Pedidos</span>
+          <span class="nav-count" id="nav-orders-badge">0</span>
+        </button>
+
+        <button type="button" class="nav-btn" data-view="analytics" id="nav-analytics">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <path d="M3 16.5h14M5.5 14V9.5M10 14V5.5M14.5 14V8" stroke-linecap="round" />
+          </svg>
+          <span>Analítica Comercial</span>
+        </button>
+
+        <button type="button" class="nav-btn" data-view="reports" id="nav-reports">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <path d="M5 2.5h7l4 4v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1z" />
+            <path d="M12 2.5v4h4M7 10.5h6M7 13.5h4" stroke-linecap="round" />
+          </svg>
+          <span>Reportes PDF y Excel</span>
+        </button>
+
+        <div class="nav-group-label nav-group-spaced">Sistema y Datos</div>
+        <button type="button" class="nav-btn" data-view="system" id="nav-system">
+          <svg class="nav-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <ellipse cx="10" cy="5" rx="6.5" ry="2.5" />
+            <path d="M3.5 5v5c0 1.38 2.91 2.5 6.5 2.5s6.5-1.12 6.5-2.5V5" />
+            <path d="M3.5 10v5c0 1.38 2.91 2.5 6.5 2.5s6.5-1.12 6.5-2.5v-5" />
+          </svg>
+          <span>Base de Datos y Wizard</span>
+        </button>
+      </nav>
+
+      <!-- MÓDULO DE CONEXIÓN WHATSAPP BUSINESS -->
+      <section class="connection-panel" aria-label="Estado de conexión con WhatsApp Business">
+        <div class="nav-group-label">Sincronización WhatsApp</div>
+        <div class="conn-card">
+          <div class="conn-status-row">
+            <span class="status-dot disconnected" id="wa-status-dot" aria-hidden="true"></span>
+            <div class="conn-status-texts">
+              <strong id="wa-status-title">Desconectado</strong>
+              <span id="wa-status-sub">Datos locales listos</span>
+            </div>
+          </div>
+
+          <div class="conn-actions" id="wa-disconnected-actions">
+            <button type="button" class="btn btn-wa-connect" id="btn-wa-connect">
+              <svg class="btn-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <path d="M10 2.5a7.5 7.5 0 0 0-6.44 11.36L2.5 17.5l3.78-.99A7.5 7.5 0 1 0 10 2.5z" />
+                <path d="M7.5 8.5c.5 1.8 2.2 3.5 4 4l1.3-1.1c.2-.2.5-.2.7-.1l1.5.7c.3.1.4.5.3.8-.4 1-1.3 1.7-2.4 1.7-3.6 0-6.9-3.3-6.9-6.9 0-1.1.7-2 1.7-2.4.3-.1.7 0 .8.3l.7 1.5c.1.2.1.5-.1.7L7.5 8.5z" />
+              </svg>
+              <span>Conectar WhatsApp</span>
+            </button>
+            <label class="conn-visible-toggle" for="chk-wa-visible">
+              <input type="checkbox" id="chk-wa-visible" />
+              <span>Mostrar ventana del navegador</span>
+            </label>
+          </div>
+
+          <div class="conn-actions hidden" id="wa-connected-actions">
+            <button type="button" class="btn btn-roast-solid" id="btn-wa-sync-manual">
+              <svg class="btn-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <path d="M3.5 10a6.5 6.5 0 0 1 11.3-4.3M16.5 10a6.5 6.5 0 0 1-11.3 4.3" stroke-linecap="round" />
+                <path d="M15 2.8v3.2h-3.2M5 17.2V14h3.2" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <span>Sincronización Manual</span>
+            </button>
+            <button type="button" class="btn btn-auto-sync" id="btn-wa-sync-auto">
+              <span>Sincronización Automática: Activa</span>
+            </button>
+            <button type="button" class="btn btn-sidebar-outline" id="btn-wa-disconnect">
+              <span>Cerrar conexión</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- PIE DE BARRA LATERAL: TEMA Y VERSIÓN -->
+      <div class="sidebar-footer">
+        <button type="button" class="theme-toggle-btn" id="btn-theme-toggle" aria-label="Cambiar entre tema claro y oscuro">
+          <svg class="btn-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <circle cx="10" cy="10" r="4" />
+            <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M15.7 4.3l-1.4 1.4M5.7 14.3l-1.4 1.4" stroke-linecap="round" />
+          </svg>
+          <span id="theme-toggle-label">Tema: Pergamino Claro</span>
+        </button>
+        <div class="version-line">
+          <span id="app-version-label">v2.0.0 · Edición Escritorio</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ÁREA PRINCIPAL -->
+    <div class="workspace-area">
+      <!-- ENCABEZADO SUPERIOR -->
+      <header class="topbar">
+        <div class="topbar-titles">
+          <h1 id="topbar-title">Panel de Pedidos</h1>
+          <p id="topbar-subtitle">Consolidación contable de órdenes de WhatsApp Business</p>
+        </div>
+        <div class="topbar-actions">
+          <button type="button" class="btn btn-outline" id="btn-quick-migrate" title="Importar base de datos anterior o crear respaldo">
+            <svg class="btn-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <ellipse cx="10" cy="5" rx="6" ry="2.2" />
+              <path d="M4 5v10c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2V5" />
+            </svg>
+            <span>Migrar / Respaldo BD</span>
+          </button>
+          <button type="button" class="btn btn-cafeto" id="btn-topbar-excel">
+            <svg class="btn-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <rect x="3" y="3" width="14" height="14" rx="2" />
+              <path d="M3 8h14M8 8v9" />
+            </svg>
+            <span>Exportar Excel</span>
+          </button>
+          <button type="button" class="btn btn-roast" id="btn-topbar-pdf">
+            <svg class="btn-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M5 2.5h7l4 4v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1z" />
+              <path d="M7 13h6M7 10h6" stroke-linecap="round" />
+            </svg>
+            <span>Exportar PDF</span>
+          </button>
+          <span class="topbar-date" id="topbar-date"></span>
+        </div>
+      </header>
+
+      <!-- CONTENEDOR PRINCIPAL DE VISTAS -->
+      <main class="main-content" id="main-content">
+        <!-- BANNER INFORMATIVO DE MIGRACIÓN AUTOMÁTICA -->
+        <div class="migration-banner hidden" id="migration-banner" role="status">
+          <div class="migration-banner-text" id="migration-banner-text"></div>
+          <button type="button" class="btn btn-sm btn-outline" id="btn-close-migration-banner">Entendido</button>
+        </div>
+
+        <!-- ==========================================
+             VISTA 1: PANEL DE PEDIDOS
+             ========================================== -->
+        <section class="view-section active" id="view-panel" aria-labelledby="topbar-title">
+          <!-- BANDA CONTABLE DE OPERACIÓN (Foco jerárquico en Total Facturado) -->
+          <div class="ledger-strip">
+            <div class="ledger-hero-card">
+              <div class="ledger-hero-header">
+                <span class="ledger-eyebrow">Total Facturado (Órdenes Aprobadas)</span>
+                <span class="ledger-badge-origin">Cierre Contable</span>
+              </div>
+              <div class="ledger-hero-value tabular" id="kpi-total-revenue">$0.00</div>
+              <div class="ledger-hero-foot">
+                <span id="kpi-ticket-avg" class="tabular">Ticket promedio: $0.00</span>
+                <span class="dot-sep" aria-hidden="true">·</span>
+                <span>Incluye Completado, Enviado, En preparación y Entregado</span>
+              </div>
+            </div>
+
+            <div class="ledger-metrics-grid" role="group" aria-label="Filtro rápido por estado de orden">
+              <button type="button" class="metric-tile active" data-state-filter="ALL" id="tile-all">
+                <span class="metric-label">Órdenes en Periodo</span>
+                <strong class="metric-number tabular" id="kpi-count-total">0</strong>
+                <span class="metric-hint">Ver todas las órdenes</span>
+              </button>
+
+              <button type="button" class="metric-tile tile-paid" data-state-filter="PAID" id="tile-paid">
+                <span class="metric-label">Pagadas / En Curso</span>
+                <strong class="metric-number tabular" id="kpi-count-paid">0</strong>
+                <span class="metric-hint">Generan ingreso neto</span>
+              </button>
+
+              <button type="button" class="metric-tile tile-pending" data-state-filter="Pendiente" id="tile-pending">
+                <span class="metric-label">Pendientes de Pago</span>
+                <strong class="metric-number tabular" id="kpi-count-pending">0</strong>
+                <span class="metric-hint">Requieren seguimiento</span>
+              </button>
+
+              <button type="button" class="metric-tile tile-cancelled" data-state-filter="Cancelado" id="tile-cancelled">
+                <span class="metric-label">Canceladas</span>
+                <strong class="metric-number tabular" id="kpi-count-cancelled">0</strong>
+                <span class="metric-hint">Excluidas del ingreso</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- BARRA DE FILTROS Y ACCIONES -->
+          <div class="controls-card">
+            <div class="controls-row">
+              <!-- Rango de fechas -->
+              <div class="control-block">
+                <span class="control-group-title">Periodo de consulta</span>
+                <div class="control-inline">
+                  <div class="field-inline">
+                    <label for="filter-date-from">Desde</label>
+                    <input type="date" id="filter-date-from" class="input-control tabular" />
+                  </div>
+                  <div class="field-inline">
+                    <label for="filter-date-to">Hasta</label>
+                    <input type="date" id="filter-date-to" class="input-control tabular" />
+                  </div>
+                  <button type="button" class="btn btn-roast" id="btn-apply-dates">Filtrar</button>
+                  <button type="button" class="btn btn-outline" id="btn-all-dates" title="Mostrar todo el historial registrado">Todo</button>
+                </div>
+              </div>
+
+              <div class="control-divider" aria-hidden="true"></div>
+
+              <!-- Filtro rápido por Mes/Año -->
+              <div class="control-block">
+                <span class="control-group-title">Mes contable</span>
+                <div class="control-inline">
+                  <div class="field-inline">
+                    <label for="filter-quick-month" class="sr-only">Mes</label>
+                    <select id="filter-quick-month" class="input-control" aria-label="Seleccionar mes"></select>
+                  </div>
+                  <div class="field-inline">
+                    <label for="filter-quick-year" class="sr-only">Año</label>
+                    <select id="filter-quick-year" class="input-control tabular" aria-label="Seleccionar año"></select>
+                  </div>
+                  <button type="button" class="btn btn-outline" id="btn-quick-month-go">Ir al mes</button>
+                </div>
+              </div>
+
+              <div class="control-divider" aria-hidden="true"></div>
+
+              <!-- Búsqueda y Estado -->
+              <div class="control-block control-block-grow">
+                <span class="control-group-title">Búsqueda y estado</span>
+                <div class="control-inline">
+                  <div class="field-inline field-grow">
+                    <label for="filter-search" class="sr-only">Buscar por cliente, producto o ID</label>
+                    <input
+                      type="search"
+                      id="filter-search"
+                      class="input-control"
+                      placeholder="Buscar cliente, producto o ID..."
+                    />
+                  </div>
+                  <div class="field-inline">
+                    <label for="filter-state-select" class="sr-only">Filtrar por estado</label>
+                    <select id="filter-state-select" class="input-control" aria-label="Filtrar por estado">
+                      <option value="ALL">Todos los estados</option>
+                      <option value="PAID">Solo pagadas (Ingreso)</option>
+                      <option value="Completado">Completado</option>
+                      <option value="Pendiente">Pendiente</option>
+                      <option value="Enviado">Enviado</option>
+                      <option value="Envío en preparación">Envío en preparación</option>
+                      <option value="Entregado">Entregado</option>
+                      <option value="Cancelado">Cancelado</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Acción Principal: Agregar Pedido Manual -->
+              <div class="control-block">
+                <span class="control-group-title">Registro manual</span>
+                <button type="button" class="btn btn-cherry" id="btn-add-order">
+                  <svg class="btn-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M10 4v12M4 10h12" stroke-linecap="round" />
+                  </svg>
+                  <span>Agregar Pedido</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- TABLA DE ÓRDENES -->
+          <div class="table-card">
+            <div class="table-card-header">
+              <div class="table-header-left">
+                <h2>Registro de Órdenes</h2>
+                <span class="table-count-summary tabular" id="table-count-summary">0 resultados · 0 en base de datos</span>
+              </div>
+
+              <!-- Barra de acciones en lote cuando hay filas marcadas -->
+              <div class="bulk-actions-bar hidden" id="bulk-actions-bar">
+                <span class="bulk-count tabular" id="bulk-selected-label">0 seleccionados</span>
+                <label for="bulk-state-select" class="sr-only">Cambiar estado en lote</label>
+                <select id="bulk-state-select" class="input-control input-sm" aria-label="Estado para aplicar a seleccionados">
+                  <option value="">Cambiar estado a...</option>
+                  <option value="Completado">Completado</option>
+                  <option value="Pendiente">Pendiente</option>
+                  <option value="Enviado">Enviado</option>
+                  <option value="Envío en preparación">Envío en preparación</option>
+                  <option value="Entregado">Entregado</option>
+                  <option value="Cancelado">Cancelado</option>
+                </select>
+                <button type="button" class="btn btn-sm btn-roast" id="btn-bulk-apply-state">Aplicar estado</button>
+                <button type="button" class="btn btn-sm btn-danger" id="btn-bulk-delete">Eliminar seleccionados</button>
+              </div>
+            </div>
+
+            <div class="table-scroll-container">
+              <table class="orders-table" aria-label="Tabla de pedidos registrados">
+                <thead>
+                  <tr>
+                    <th class="col-check">
+                      <input type="checkbox" id="chk-select-all" aria-label="Seleccionar todos los pedidos visibles" />
+                    </th>
+                    <th class="col-id">
+                      <button type="button" class="sort-header-btn" data-sort="id">
+                        <span>ID Referencia</span>
+                        <span class="sort-indicator" id="sort-ind-id"></span>
+                      </button>
+                    </th>
+                    <th class="col-client">
+                      <button type="button" class="sort-header-btn" data-sort="cliente">
+                        <span>Cliente</span>
+                        <span class="sort-indicator" id="sort-ind-cliente"></span>
+                      </button>
+                    </th>
+                    <th class="col-product">
+                      <button type="button" class="sort-header-btn" data-sort="producto">
+                        <span>Producto(s)</span>
+                        <span class="sort-indicator" id="sort-ind-producto"></span>
+                      </button>
+                    </th>
+                    <th class="col-date">
+                      <button type="button" class="sort-header-btn" data-sort="fecha">
+                        <span>Fecha</span>
+                        <span class="sort-indicator" id="sort-ind-fecha">▼</span>
+                      </button>
+                    </th>
+                    <th class="col-amount">
+                      <button type="button" class="sort-header-btn sort-right" data-sort="monto">
+                        <span>Monto</span>
+                        <span class="sort-indicator" id="sort-ind-monto"></span>
+                      </button>
+                    </th>
+                    <th class="col-state">
+                      <button type="button" class="sort-header-btn" data-sort="estado">
+                        <span>Estado</span>
+                        <span class="sort-indicator" id="sort-ind-estado"></span>
+                      </button>
+                    </th>
+                    <th class="col-actions">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="orders-tbody"></tbody>
+              </table>
+
+              <!-- ESTADO VACÍO ACCIONABLE (R-27) -->
+              <div class="empty-state hidden" id="orders-empty-state">
+                <h3 id="empty-state-title">No hay pedidos en este rango de fechas</h3>
+                <p id="empty-state-desc">
+                  Puedes ampliar el rango de fechas a "Todo", conectar WhatsApp Business para sincronizar pedidos o importar la base de datos de tu versión anterior.
+                </p>
+                <div class="empty-state-actions">
+                  <button type="button" class="btn btn-outline" id="btn-empty-show-all">Ver todo el historial</button>
+                  <button type="button" class="btn btn-roast" id="btn-empty-add-manual">Agregar pedido manual</button>
+                  <button type="button" class="btn btn-cafeto" id="btn-empty-migrate">Importar base de datos anterior</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==========================================
+             VISTA 2: ANALÍTICA COMERCIAL
+             ========================================== -->
+        <section class="view-section" id="view-analytics" aria-label="Analítica comercial">
+          <div class="controls-card">
+            <div class="controls-row">
+              <div class="control-block">
+                <span class="control-group-title">Periodo de análisis</span>
+                <div class="control-inline">
+                  <div class="field-inline">
+                    <label for="an-year-select">Año</label>
+                    <select id="an-year-select" class="input-control tabular"></select>
+                  </div>
+                  <div class="field-inline">
+                    <label for="an-month-select">Mes</label>
+                    <select id="an-month-select" class="input-control"></select>
+                  </div>
+                  <button type="button" class="btn btn-roast" id="btn-an-refresh">Actualizar análisis</button>
+                </div>
+              </div>
+              <div class="an-summary-pill tabular" id="an-scope-summary">
+                0 órdenes analizadas · $0.00 facturados
+              </div>
+            </div>
+          </div>
+
+          <!-- KPIs de Analítica -->
+          <div class="analytics-kpi-grid">
+            <div class="an-kpi-card">
+              <span class="an-kpi-label">Ticket Promedio (Pagadas)</span>
+              <strong class="an-kpi-value tabular" id="an-kpi-ticket">$0.00</strong>
+              <span class="an-kpi-sub">Ingreso promedio por pedido aprobado</span>
+            </div>
+            <div class="an-kpi-card">
+              <span class="an-kpi-label">Producto de Mayor Ingreso</span>
+              <strong class="an-kpi-value" id="an-kpi-product">Sin registros</strong>
+              <span class="an-kpi-sub" id="an-kpi-product-sub">Según ventas pagadas del periodo</span>
+            </div>
+            <div class="an-kpi-card">
+              <span class="an-kpi-label">Cliente Principal</span>
+              <strong class="an-kpi-value" id="an-kpi-customer">Sin registros</strong>
+              <span class="an-kpi-sub" id="an-kpi-customer-sub">Mayor facturación acumulada</span>
+            </div>
+            <div class="an-kpi-card">
+              <span class="an-kpi-label">Tasa de Órdenes Pagadas</span>
+              <strong class="an-kpi-value tabular" id="an-kpi-rate">0.0%</strong>
+              <span class="an-kpi-sub">Porcentaje de pedidos efectivos</span>
+            </div>
+          </div>
+
+          <!-- GRÁFICOS (Con preguntas explícitas según antislop-ui) -->
+          <div class="charts-stack">
+            <article class="chart-card">
+              <div class="chart-card-header">
+                <div>
+                  <h2 id="chart-monthly-title">¿Cómo evolucionaron los ingresos pagados mes a mes?</h2>
+                  <p class="chart-subtitle" id="chart-monthly-sub">Facturación mensual aprobada del año seleccionado</p>
+                </div>
+              </div>
+              <div class="chart-body" id="chart-monthly-container"></div>
+            </article>
+
+            <div class="charts-two-col">
+              <article class="chart-card">
+                <div class="chart-card-header">
+                  <div>
+                    <h2>¿Cómo se compara la facturación en los últimos 5 años?</h2>
+                    <p class="chart-subtitle" id="chart-annual-sub">Histórico anual acumulado</p>
+                  </div>
+                </div>
+                <div class="chart-body" id="chart-annual-container"></div>
+              </article>
+
+              <article class="chart-card">
+                <div class="chart-card-header">
+                  <div>
+                    <h2 id="chart-cancelled-title">¿En qué meses se concentraron las órdenes canceladas?</h2>
+                    <p class="chart-subtitle" id="chart-cancelled-sub">Conteo mensual de cancelaciones</p>
+                  </div>
+                </div>
+                <div class="chart-body" id="chart-cancelled-container"></div>
+              </article>
+            </div>
+
+            <div class="charts-two-col">
+              <article class="chart-card">
+                <div class="chart-card-header">
+                  <div>
+                    <h2>¿Cuál es la distribución de pedidos por estado?</h2>
+                    <p class="chart-subtitle">Proporción y cantidad sobre el periodo filtrado</p>
+                  </div>
+                </div>
+                <div class="chart-body" id="chart-status-container"></div>
+              </article>
+
+              <article class="chart-card">
+                <div class="chart-card-header">
+                  <div>
+                    <h2>¿Qué productos generan mayor facturación?</h2>
+                    <p class="chart-subtitle">Top 5 referencias por ingreso pagado</p>
+                  </div>
+                </div>
+                <div class="chart-body" id="chart-products-container"></div>
+              </article>
+            </div>
+
+            <article class="chart-card">
+              <div class="chart-card-header chart-header-wrap">
+                <div>
+                  <h2 id="chart-customers-title">¿Quiénes son los clientes con mayor volumen de compra?</h2>
+                  <p class="chart-subtitle">Clientes ordenados por facturación pagada y número de pedidos</p>
+                </div>
+                <div class="chart-controls-inline">
+                  <div class="field-inline">
+                    <label for="an-top-limit">Mostrar top</label>
+                    <select id="an-top-limit" class="input-control input-sm tabular">
+                      <option value="5">5</option>
+                      <option value="10" selected>10</option>
+                      <option value="15">15</option>
+                      <option value="20">20</option>
+                    </select>
+                  </div>
+                  <label class="checkbox-inline" for="an-hide-amounts">
+                    <input type="checkbox" id="an-hide-amounts" />
+                    <span>Ocultar montos</span>
+                  </label>
+                  <button type="button" class="btn btn-sm btn-roast" id="btn-copy-customers">
+                    Copiar listado (sin montos)
+                  </button>
+                </div>
+              </div>
+              <div class="chart-body" id="chart-customers-container"></div>
+            </article>
+          </div>
+        </section>
+
+        <!-- ==========================================
+             VISTA 3: REPORTES PDF Y EXCEL
+             ========================================== -->
+        <section class="view-section" id="view-reports" aria-label="Generación e historial de reportes">
+          <div class="reports-quick-section">
+            <div class="section-heading-row">
+              <div>
+                <h2>Generación Rápida con Membrete Oficial</h2>
+                <p>Exporta cierres contables listos para impresión en PDF (con papel membrete de Café Pa'l Monte) o libros de Excel con hoja de resumen.</p>
+              </div>
+            </div>
+
+            <div class="quick-reports-grid">
+              <article class="quick-report-card">
+                <div class="qr-card-top">
+                  <h3>Último Mes Cerrado</h3>
+                  <p>Mes calendario inmediatamente anterior completo.</p>
+                </div>
+                <div class="qr-card-actions">
+                  <button type="button" class="btn btn-roast" data-quick-report="ultimo_mes" data-format="pdf">Generar PDF</button>
+                  <button type="button" class="btn btn-cafeto" data-quick-report="ultimo_mes" data-format="excel">Generar Excel</button>
+                </div>
+              </article>
+
+              <article class="quick-report-card">
+                <div class="qr-card-top">
+                  <h3>Último Trimestre</h3>
+                  <p>Último trimestre contable cerrado de 3 meses.</p>
+                </div>
+                <div class="qr-card-actions">
+                  <button type="button" class="btn btn-roast" data-quick-report="ultimo_trimestre" data-format="pdf">Generar PDF</button>
+                  <button type="button" class="btn btn-cafeto" data-quick-report="ultimo_trimestre" data-format="excel">Generar Excel</button>
+                </div>
+              </article>
+
+              <article class="quick-report-card">
+                <div class="qr-card-top">
+                  <h3>Acumulado del Año (YTD)</h3>
+                  <p>Todas las órdenes desde el 1 de enero hasta hoy.</p>
+                </div>
+                <div class="qr-card-actions">
+                  <button type="button" class="btn btn-roast" data-quick-report="ytd" data-format="pdf">Generar PDF</button>
+                  <button type="button" class="btn btn-cafeto" data-quick-report="ytd" data-format="excel">Generar Excel</button>
+                </div>
+              </article>
+
+              <article class="quick-report-card">
+                <div class="qr-card-top">
+                  <h3>Toda la Operación</h3>
+                  <p>Consolidado histórico completo de la base de datos.</p>
+                </div>
+                <div class="qr-card-actions">
+                  <button type="button" class="btn btn-roast" data-quick-report="toda_operacion" data-format="pdf">Generar PDF</button>
+                  <button type="button" class="btn btn-cafeto" data-quick-report="toda_operacion" data-format="excel">Generar Excel</button>
+                </div>
+              </article>
+            </div>
+          </div>
+
+          <div class="table-card reports-history-card">
+            <div class="table-card-header">
+              <div>
+                <h2>Historial de Documentos Generados</h2>
+                <span class="table-count-summary" id="reports-count-label">0 documentos almacenados</span>
+              </div>
+              <button type="button" class="btn btn-sm btn-outline" id="btn-refresh-reports">Actualizar lista</button>
+            </div>
+            <div class="reports-list" id="reports-list-container"></div>
+          </div>
+        </section>
+
+        <!-- ==========================================
+             VISTA 4: BASE DE DATOS, MIGRACIÓN Y WIZARD DE ACTUALIZACIÓN
+             ========================================== -->
+        <section class="view-section" id="view-system" aria-label="Base de datos, migración y actualizaciones">
+          <div class="system-grid">
+            <!-- Tarjeta 1: Base de datos actual y copias de seguridad -->
+            <article class="system-card">
+              <div class="system-card-header">
+                <h2>Base de Datos Local Activa (SQLite WAL)</h2>
+                <span class="badge-pill badge-paid">Protegida fuera de la carpeta de instalación</span>
+              </div>
+              <p class="system-desc">
+                Tus pedidos, reportes y sesión de WhatsApp viven en tu carpeta de datos de usuario de Windows. Cuando instalas una actualización con el Wizard, esta base de datos nunca se borra ni se sobrescribe.
+              </p>
+
+              <dl class="system-paths-list">
+                <div class="sys-path-item">
+                  <dt>Archivo de Base de Datos:</dt>
+                  <dd class="mono-path" id="sys-db-path">Cargando...</dd>
+                </div>
+                <div class="sys-path-item">
+                  <dt>Carpeta de Reportes:</dt>
+                  <dd class="mono-path" id="sys-reports-path">Cargando...</dd>
+                </div>
+                <div class="sys-path-item">
+                  <dt>Estadísticas de Sincronización:</dt>
+                  <dd id="sys-sync-stats">0 pedidos registrados</dd>
+                </div>
+              </dl>
+
+              <div class="system-actions-row">
+                <button type="button" class="btn btn-cafeto" id="btn-sys-backup">
+                  Crear Copia de Seguridad Ahora (.db)
+                </button>
+                <button type="button" class="btn btn-outline" id="btn-sys-open-folder">
+                  Abrir Carpeta de Datos en Windows
+                </button>
+              </div>
+            </article>
+
+            <!-- Tarjeta 2: Asistente de Migración de Base de Datos de versión anterior -->
+            <article class="system-card">
+              <div class="system-card-header">
+                <h2>Migrar Base de Datos de la Versión Anterior</h2>
+                <span class="badge-pill badge-pending">Fusión inteligente sin duplicados</span>
+              </div>
+              <p class="system-desc">
+                Si la persona tenía la versión anterior en Python o en una carpeta descomprimida (con <code>_internal/orders.db</code> o <code>app/orders.db</code>), selecciona esa carpeta o el archivo <code>orders.db</code> para traer todos sus pedidos, reportes y sesión de WhatsApp.
+              </p>
+
+              <div class="system-actions-row">
+                <button type="button" class="btn btn-roast" id="btn-migrate-pick-folder">
+                  Seleccionar Carpeta Anterior (CafePalMonte)
+                </button>
+                <button type="button" class="btn btn-outline" id="btn-migrate-pick-file">
+                  Seleccionar Archivo orders.db
+                </button>
+              </div>
+
+              <!-- Vista previa de inspección antes de migrar -->
+              <div class="migration-preview-box hidden" id="migration-preview-box">
+                <h3>Fuente seleccionada lista para importar</h3>
+                <p id="migration-preview-details"></p>
+                <div class="system-actions-row">
+                  <button type="button" class="btn btn-cherry" id="btn-migration-confirm">
+                    Fusionar Pedidos y Datos Ahora
+                  </button>
+                </div>
+              </div>
+
+              <!-- Fuentes detectadas automáticamente en este equipo -->
+              <div class="known-sources-wrap">
+                <h3>Fuentes detectadas automáticamente en este equipo</h3>
+                <div id="known-sources-list" class="known-sources-list"></div>
+              </div>
+            </article>
+
+            <!-- Tarjeta 3: Wizard de Instalación y Actualización -->
+            <article class="system-card system-card-full">
+              <div class="system-card-header">
+                <h2>Asistente de Actualización del Sistema (Update Wizard)</h2>
+                <span class="badge-pill badge-enviado" id="sys-version-pill">Versión instalada: v2.0.0</span>
+              </div>
+              <p class="system-desc">
+                Para actualizar la aplicación cuando publiques una nueva versión (<code>CafePalMonte_Setup_v2.x.x.exe</code>), puedes ejecutar directamente el instalador o cargarlo desde aquí. El sistema creará un respaldo automático de <code>orders.db</code>, cerrará la ventana actual y abrirá el Wizard de actualización conservando intactos todos los datos.
+              </p>
+              <div class="system-actions-row">
+                <button type="button" class="btn btn-roast" id="btn-run-update-wizard">
+                  Instalar Actualización desde Archivo Setup (.exe)
+                </button>
+                <button type="button" class="btn btn-outline" id="btn-check-github-updates">
+                  Verificar estado de versión
+                </button>
+              </div>
+              <p class="system-status-note hidden" id="updater-status-note"></p>
+            </article>
+          </div>
+        </section>
+      </main>
+
+      <!-- BARRA DE ESTADO INFERIOR -->
+      <footer class="statusbar" role="status" aria-live="polite">
+        <span id="statusbar-text">Listo · Base de datos local conectada</span>
+        <span class="statusbar-right" id="statusbar-db-summary">SQLite WAL activo</span>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       MODAL 1: AGREGAR / EDITAR PEDIDO MANUAL
+       ========================================== -->
+  <div class="modal-backdrop hidden" id="order-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="order-modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="order-modal-title">Nuevo Pedido Manual</h2>
+        <button type="button" class="modal-close-btn" id="btn-close-order-modal" aria-label="Cerrar ventana">✕</button>
+      </div>
+      <form id="order-form" class="modal-body" novalidate>
+        <div class="form-field">
+          <label for="order-input-id">ID de Referencia del Pedido</label>
+          <div class="input-with-action">
+            <input
+              type="text"
+              id="order-input-id"
+              class="input-control mono-input"
+              placeholder="Ej. ORD-2026-001"
+              required
+            />
+            <button type="button" class="btn btn-sm btn-outline" id="btn-generate-order-id">Generar ID</button>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label for="order-input-client">Nombre del Cliente</label>
+          <input
+            type="text"
+            id="order-input-client"
+            class="input-control"
+            placeholder="Nombre completo o razón social"
+            required
+          />
+        </div>
+
+        <div class="form-field">
+          <label for="order-input-product">Producto(s) y Cantidad</label>
+          <input
+            type="text"
+            id="order-input-product"
+            class="input-control"
+            placeholder="Ej. Café Molido Tradicional 500g x2"
+            required
+          />
+        </div>
+
+        <div class="form-row-two">
+          <div class="form-field">
+            <label for="order-input-amount">Monto Total ($)</label>
+            <input
+              type="number"
+              id="order-input-amount"
+              class="input-control tabular"
+              step="0.01"
+              min="0"
+              placeholder="0.00"
+              required
+            />
+          </div>
+          <div class="form-field">
+            <label for="order-input-date">Fecha del Pedido</label>
+            <input type="date" id="order-input-date" class="input-control tabular" required />
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label for="order-input-state">Estado Contable</label>
+          <select id="order-input-state" class="input-control">
+            <option value="Pendiente">Pendiente</option>
+            <option value="Completado">Completado</option>
+            <option value="Enviado">Enviado</option>
+            <option value="Envío en preparación">Envío en preparación</option>
+            <option value="Entregado">Entregado</option>
+            <option value="Cancelado">Cancelado</option>
+          </select>
+        </div>
+
+        <p class="form-error hidden" id="order-form-error" role="alert"></p>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="btn-cancel-order-modal">Cancelar</button>
+          <button type="submit" class="btn btn-roast" id="btn-save-order">Guardar Pedido</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       MODAL 2: VINCULAR WHATSAPP BUSINESS (QR)
+       ========================================== -->
+  <div class="modal-backdrop hidden" id="qr-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="qr-modal-title">
+    <div class="modal-card modal-qr">
+      <div class="modal-header">
+        <h2 id="qr-modal-title">Vincular WhatsApp Business</h2>
+        <button type="button" class="modal-close-btn" id="btn-close-qr-modal" aria-label="Cancelar conexión">✕</button>
+      </div>
+      <div class="modal-body qr-modal-body">
+        <p class="qr-instructions">
+          1. Abre <strong>WhatsApp Business</strong> en tu teléfono.<br />
+          2. Toca <strong>Menú (⋮) &gt; Dispositivos vinculados &gt; Vincular un dispositivo</strong>.<br />
+          3. Apunta la cámara al código QR que aparece a continuación:
+        </p>
+        <div class="qr-frame" id="qr-frame">
+          <div class="qr-placeholder" id="qr-placeholder">
+            <div class="spinner" aria-hidden="true"></div>
+            <span id="qr-status-message">Preparando navegador y generando código QR...</span>
+          </div>
+          <img id="qr-image" class="qr-image hidden" alt="Código QR para vincular WhatsApp Business" width="268" height="268" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" id="btn-cancel-qr">Cancelar vinculación</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       MODAL 3: CONFIRMACIÓN DE ELIMINACIÓN
+       ========================================== -->
+  <div class="modal-backdrop hidden" id="confirm-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+    <div class="modal-card modal-sm">
+      <div class="modal-header">
+        <h2 id="confirm-modal-title">Confirmar eliminación</h2>
+        <button type="button" class="modal-close-btn" id="btn-close-confirm-modal" aria-label="Cerrar confirmación">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="confirm-modal-message">
+          ¿Estás seguro de que deseas eliminar los pedidos seleccionados? El sistema los registrará como descartados para que no se vuelvan a importar al sincronizar WhatsApp.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" id="btn-cancel-confirm">Cancelar</button>
+        <button type="button" class="btn btn-danger" id="btn-accept-confirm">Sí, eliminar definitivamente</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MENÚ CONTEXTUAL DE FILA (Click derecho) -->
+  <div class="context-menu hidden" id="row-context-menu" role="menu" aria-label="Acciones rápidas del pedido">
+    <div class="context-menu-header" id="ctx-menu-order-id">Pedido</div>
+    <button type="button" class="context-menu-item" data-ctx-action="edit" role="menuitem">Editar datos del pedido...</button>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-label">Cambiar estado a:</div>
+    <button type="button" class="context-menu-item" data-ctx-state="Completado" role="menuitem">Marcar como Completado</button>
+    <button type="button" class="context-menu-item" data-ctx-state="Pendiente" role="menuitem">Marcar como Pendiente</button>
+    <button type="button" class="context-menu-item" data-ctx-state="Enviado" role="menuitem">Marcar como Enviado</button>
+    <button type="button" class="context-menu-item" data-ctx-state="Envío en preparación" role="menuitem">Marcar como Envío en preparación</button>
+    <button type="button" class="context-menu-item" data-ctx-state="Entregado" role="menuitem">Marcar como Entregado</button>
+    <button type="button" class="context-menu-item" data-ctx-state="Cancelado" role="menuitem">Marcar como Cancelado</button>
+    <div class="context-menu-divider"></div>
+    <button type="button" class="context-menu-item context-menu-danger" data-ctx-action="delete" role="menuitem">Eliminar pedido</button>
+  </div>
+
+  <!-- TOAST DE NOTIFICACIÓN -->
+  <div class="toast-container" id="toast-container" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

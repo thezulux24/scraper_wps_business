@@ -1,0 +1,75 @@
+{
+  "name": "cafe-pal-monte-desktop",
+  "productName": "Cafe Pa'l Monte",
+  "version": "2.0.0",
+  "description": "Sistema de gestion de pedidos, sincronizacion de WhatsApp Business y analitica contable para Cafe Pa'l Monte",
+  "main": "src/main/main.js",
+  "author": "Cafe Pa'l Monte (Brayan Zuluaga, Jhon Mejias, Juan Collazos, Joshua Mendez)",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "test:db": "node src/main/test-smoke.js",
+    "dist": "node scripts/build-installer.js",
+    "dist:dir": "electron-builder --win --dir"
+  },
+  "build": {
+    "appId": "com.cafepalmonte.ordermanager",
+    "productName": "Cafe Pa'l Monte",
+    "copyright": "Copyright © 2026 Cafe Pa'l Monte",
+    "asar": true,
+    "files": [
+      "src/**/*",
+      "app/assets/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "app/assets",
+        "to": "assets"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "app/assets/app.ico",
+      "artifactName": "CafePalMonte_Setup_v${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "app/assets/app.ico",
+      "uninstallerIcon": "app/assets/app.ico",
+      "installerHeaderIcon": "app/assets/app.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Cafe Pa'l Monte",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "thezulux24",
+        "repo": "scraper_wps_business"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9",
+    "exceljs": "^4.4.0",
+    "pdfkit": "^0.15.2",
+    "puppeteer-core": "^24.0.0"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8"
+  }
+}

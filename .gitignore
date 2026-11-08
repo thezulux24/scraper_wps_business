@@ -22,7 +22,9 @@ app/reportes/*.xlsx
 populate_test_data.py/
 
 # Build and IDE outputs
+node_modules/
 dist/
+release/
 build/
 .pytest_cache/
 *.log
