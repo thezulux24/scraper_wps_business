@@ -20,14 +20,16 @@ contextBridge.exposeInMainWorld('cafeApi', {
 
   // Reportes PDF y Excel
   exportReport: (payload) => ipcRenderer.invoke('reports:export', payload),
+  exportOrderReceipt: (payload) => ipcRenderer.invoke('reports:exportReceipt', payload),
   listReports: () => ipcRenderer.invoke('reports:list'),
   openFile: (filePath) => ipcRenderer.invoke('shell:openPath', filePath),
   showInFolder: (filePath) => ipcRenderer.invoke('shell:showInFolder', filePath),
 
-  // Migración de BD, Respaldos y Wizard de Actualización
+  // Migración de BD, Respaldos, Demo Data y Wizard de Actualización
   pickLegacySource: (mode) => ipcRenderer.invoke('migration:pickSource', { mode }),
   inspectLegacySource: (targetPath) => ipcRenderer.invoke('migration:inspect', { targetPath }),
   migrateFromPath: (targetPath) => ipcRenderer.invoke('migration:run', { targetPath }),
+  seedDemoData: () => ipcRenderer.invoke('migration:seedDemoData'),
   createBackup: () => ipcRenderer.invoke('migration:backup'),
   openDataFolder: () => ipcRenderer.invoke('migration:openDataFolder'),
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),

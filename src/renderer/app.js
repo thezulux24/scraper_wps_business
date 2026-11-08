@@ -72,6 +72,10 @@ const state = {
   confirmActionCallback: null,
   topCustomersSnapshot: [],
   clientSummaryMap: new Map(),
+  catalogProducts: [],
+  monthlyGoal: 2500000,
+  crmFilter: 'all',
+  crmSearchQuery: '',
   connection: {
     connected: false,
     connecting: false,
@@ -117,11 +121,13 @@ const api = window.cafeApi || {
   syncManual: async () => ({ ok: true }),
   toggleAutoSync: async () => ({ connected: true, autoSyncActive: !state.connection.autoSyncActive }),
   exportReport: async () => ({ ok: true, message: 'Reporte generado.' }),
+  exportOrderReceipt: async () => ({ ok: true, message: 'Remisión PDF generada.' }),
   listReports: async () => [],
   openFile: async () => ({ ok: true }),
   showInFolder: async () => ({ ok: true }),
   pickLegacySource: async () => ({ canceled: true }),
   migrateFromPath: async () => ({ ok: true, importedOrders: 0, updatedOrders: 0, orders: state.orders }),
+  seedDemoData: async () => ({ ok: true, orders: state.orders }),
   createBackup: async () => ({ ok: true, backupPath: 'backup.db' }),
   openDataFolder: async () => ({ ok: true }),
   checkForUpdates: async () => ({ ok: true, updateAvailable: false, message: 'Versión v2.0.0 al día.' }),
@@ -233,16 +239,51 @@ function rebuildClientSummaryMap() {
   const map = new Map();
   for (const o of state.orders) {
     const key = o.cliente || 'Cliente';
-    const cur = map.get(key) || { count: 0, paidCount: 0, paidRevenue: 0, lastDate: '' };
+    const cur = map.get(key) || {
+      name: key,
+      count: 0,
+      paidCount: 0,
+      paidRevenue: 0,
+      pendingCount: 0,
+      pendingAmount: 0,
+      firstDate: '',
+      lastDate: '',
+      prodCounts: new Map(),
+    };
     cur.count += 1;
+    const monto = Number(o.monto || 0);
     if (PAID_STATES.has(o.estado)) {
       cur.paidCount += 1;
-      cur.paidRevenue += Number(o.monto || 0);
+      cur.paidRevenue += monto;
+    } else if (o.estado === 'Pendiente') {
+      cur.pendingCount += 1;
+      cur.pendingAmount += monto;
     }
+    if (!cur.firstDate || o.fecha < cur.firstDate) cur.firstDate = o.fecha;
     if (!cur.lastDate || o.fecha > cur.lastDate) cur.lastDate = o.fecha;
+    if (o.producto) {
+      cur.prodCounts.set(o.producto, (cur.prodCounts.get(o.producto) || 0) + 1);
+    }
     map.set(key, cur);
   }
   state.clientSummaryMap = map;
+
+  // Poblar datalist de autocompletado de clientes y selector en reportes personalizados
+  const clientNames = Array.from(map.keys()).sort((a, b) => a.localeCompare(b, 'es'));
+  const dl = document.getElementById('clients-datalist');
+  if (dl) {
+    dl.innerHTML = clientNames.map((n) => `<option value="${escapeHtml(n)}"></option>`).join('');
+  }
+  const repCliSel = document.getElementById('rep-custom-client');
+  if (repCliSel) {
+    const prevVal = repCliSel.value || 'ALL';
+    repCliSel.innerHTML =
+      `<option value="ALL">Todos los clientes (${clientNames.length})</option>` +
+      clientNames.map((n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+    if (clientNames.includes(prevVal) || prevVal === 'ALL') {
+      repCliSel.value = prevVal;
+    }
+  }
 }
 
 function showToast(message) {
@@ -363,9 +404,12 @@ function switchView(viewName) {
 
   if (viewName === 'panel') {
     renderOverviewDashboard(state.periodOrders);
+  } else if (viewName === 'clients') {
+    renderClientsView();
   } else if (viewName === 'analytics') {
     renderAnalytics();
   } else if (viewName === 'reports') {
+    initCustomReportDates();
     renderReportsList();
   } else if (viewName === 'system') {
     renderSystemView();
@@ -432,9 +476,18 @@ function updateNavBadge() {
   const badge = document.getElementById('nav-orders-badge');
   if (badge) badge.textContent = String(state.orders.length);
 
+  const clientsBadge = document.getElementById('nav-clients-badge');
+  if (clientsBadge) {
+    clientsBadge.textContent = String(state.clientSummaryMap.size);
+  }
+
   const statusRight = document.getElementById('statusbar-db-summary');
   if (statusRight) {
-    statusRight.textContent = `${state.orders.length} pedidos en SQLite WAL`;
+    statusRight.textContent = `${state.orders.length} pedidos · ${state.clientSummaryMap.size} clientes en SQLite WAL`;
+  }
+
+  if (state.currentView === 'clients') {
+    renderClientsView();
   }
 }
 
@@ -667,10 +720,7 @@ function renderOverviewSidePanel(periodOrders) {
   if (state.ovSideTab === 'products') {
     if (titleEl) titleEl.textContent = 'Top productos (aprobados)';
     if (subEl) subEl.textContent = 'Ordenados por facturación neta';
-    const map = new Map();
-    for (const o of paidOrders) {
-      map.set(o.producto, (map.get(o.producto) || 0) + Number(o.monto || 0));
-    }
+    const map = accumulateProductMap(paidOrders);
     const rows = Array.from(map.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
@@ -691,6 +741,63 @@ function renderOverviewSidePanel(periodOrders) {
       .slice(0, 5)
       .map(([label, value]) => ({ label, value }));
     Charts.barList(container, rows, { format: formatMoney, thin: true });
+    return;
+  }
+
+  if (state.ovSideTab === 'goal') {
+    const now = new Date();
+    const curMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const monthName = MESES[now.getMonth()];
+    const monthPaid = state.orders
+      .filter((o) => String(o.fecha || '').startsWith(curMonthPrefix) && PAID_STATES.has(o.estado))
+      .reduce((acc, o) => acc + Number(o.monto || 0), 0);
+    const goal = Math.max(10000, Number(state.monthlyGoal || 2500000));
+    const pct = Math.min(100, Math.round((monthPaid / goal) * 100));
+    const rawPct = ((monthPaid / goal) * 100).toFixed(1);
+    const remaining = Math.max(0, goal - monthPaid);
+
+    if (titleEl) titleEl.textContent = `Meta de ${monthName}`;
+    if (subEl) subEl.textContent = `${rawPct}% cumplido · Meta: ${formatMoney(goal)}`;
+
+    container.innerHTML = `
+      <div class="breakdown-list">
+        <div class="breakdown-row">
+          <div class="breakdown-row-top">
+            <span class="breakdown-name">
+              <span class="kpi-dot pos"></span>
+              <span>Facturado en ${escapeHtml(monthName)}</span>
+            </span>
+            <span class="breakdown-figures">${formatMoney(monthPaid)} <small>(${rawPct}%)</small></span>
+          </div>
+          <div class="breakdown-track" style="height:8px">
+            <div class="breakdown-fill pos" style="width:${pct}%"></div>
+          </div>
+        </div>
+        <div class="breakdown-row">
+          <div class="breakdown-row-top">
+            <span class="breakdown-name">
+              <span class="kpi-dot ${remaining > 0 ? 'warn' : 'pos'}"></span>
+              <span>${remaining > 0 ? 'Faltante para alcanzar meta' : 'Meta mensual superada'}</span>
+            </span>
+            <span class="breakdown-figures">${remaining > 0 ? formatMoney(remaining) : '+' + formatMoney(monthPaid - goal)}</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:4px">
+          <input type="number" id="input-monthly-goal" class="input-control" style="height:28px;font-size:12px;flex:1" value="${goal}" min="10000" step="50000" aria-label="Meta mensual en pesos" />
+          <button type="button" class="btn btn-outline btn-sm" id="btn-save-monthly-goal" style="height:28px">Actualizar meta</button>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('btn-save-monthly-goal')?.addEventListener('click', async () => {
+      const val = Number(document.getElementById('input-monthly-goal')?.value || 0);
+      if (val >= 10000) {
+        state.monthlyGoal = val;
+        await api.saveSettings({ monthlyGoal: val });
+        renderOverviewSidePanel(state.periodOrders);
+        showToast(`Meta mensual actualizada a ${formatMoney(val)}.`);
+      }
+    });
   }
 }
 
@@ -899,6 +1006,21 @@ function getAnalyticsOrders() {
   };
 }
 
+function accumulateProductMap(ordersList) {
+  const map = new Map();
+  for (const o of ordersList) {
+    const raw = String(o.producto || '').trim();
+    const parts = raw.split(/,\s*/).filter(Boolean);
+    if (!parts.length) continue;
+    const share = Number(o.monto || 0) / parts.length;
+    for (const part of parts) {
+      const cleanName = part.replace(/^\d+\s*x\s+/i, '').trim() || part;
+      map.set(cleanName, (map.get(cleanName) || 0) + share);
+    }
+  }
+  return map;
+}
+
 function renderAnalytics() {
   const { year, monthVal, orders } = getAnalyticsOrders();
   const paidOrders = orders.filter((o) => PAID_STATES.has(o.estado));
@@ -918,10 +1040,9 @@ function renderAnalytics() {
     rateSub.textContent = `${paidOrders.length} aprobadas de ${orders.length} totales (${pendingOrders.length} pendientes)`;
   }
 
-  const prodRev = new Map();
+  const prodRev = accumulateProductMap(paidOrders);
   const cliRev = new Map();
   for (const o of paidOrders) {
-    prodRev.set(o.producto, (prodRev.get(o.producto) || 0) + Number(o.monto || 0));
     cliRev.set(o.cliente, (cliRev.get(o.cliente) || 0) + Number(o.monto || 0));
   }
 
@@ -1128,10 +1249,7 @@ function renderTopProductsChart(paidOrders) {
     container.innerHTML = `<div class="empty-state" style="margin:0"><p>No hay ventas aprobadas en el periodo seleccionado.</p></div>`;
     return;
   }
-  const map = new Map();
-  for (const o of paidOrders) {
-    map.set(o.producto, (map.get(o.producto) || 0) + Number(o.monto || 0));
-  }
+  const map = accumulateProductMap(paidOrders);
   const top = Array.from(map.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 6)
@@ -1260,7 +1378,7 @@ async function handleQuickReport(mode, format) {
   await triggerExport(format, subset, sFrom, sTo);
 }
 
-async function triggerExport(format, ordersToExport, dateFrom, dateTo) {
+async function triggerExport(format, ordersToExport, dateFrom, dateTo, customTitle = '') {
   if (!ordersToExport.length) {
     showToast('No hay órdenes en el periodo indicado para generar el reporte.');
     return;
@@ -1271,6 +1389,7 @@ async function triggerExport(format, ordersToExport, dateFrom, dateTo) {
     orders: ordersToExport,
     dateFrom,
     dateTo,
+    customTitle,
     openAfter: true,
   });
   if (res.ok) {
@@ -1281,6 +1400,243 @@ async function triggerExport(format, ordersToExport, dateFrom, dateTo) {
   } else {
     showToast(res.message || 'Error al generar el reporte.');
   }
+}
+
+function initCustomReportDates() {
+  const fromEl = document.getElementById('rep-custom-from');
+  const toEl = document.getElementById('rep-custom-to');
+  if (fromEl && !fromEl.value) {
+    fromEl.value = state.dateFrom || `${new Date().getFullYear()}-01-01`;
+  }
+  if (toEl && !toEl.value) {
+    toEl.value = state.dateTo || todayIso();
+  }
+}
+
+async function handleCustomReportExport(format) {
+  const fromVal = document.getElementById('rep-custom-from')?.value || '0000-01-01';
+  const toVal = document.getElementById('rep-custom-to')?.value || '9999-12-31';
+  const stVal = document.getElementById('rep-custom-state')?.value || 'ALL';
+  const cliVal = document.getElementById('rep-custom-client')?.value || 'ALL';
+
+  const subset = state.orders.filter((o) => {
+    if (o.fecha < fromVal || o.fecha > toVal) return false;
+    if (cliVal !== 'ALL' && o.cliente !== cliVal) return false;
+    if (stVal === 'PAID' && !PAID_STATES.has(o.estado)) return false;
+    if (stVal !== 'ALL' && stVal !== 'PAID' && o.estado !== stVal) return false;
+    return true;
+  });
+
+  let customTitle = '';
+  if (cliVal !== 'ALL') {
+    customTitle = `ESTADO DE CUENTA · ${cliVal.toUpperCase()}`;
+  } else if (stVal === 'Pendiente') {
+    customTitle = 'REPORTE DE CARTERA PENDIENTE POR COBRAR';
+  }
+
+  await triggerExport(format, subset, fromVal, toVal, customTitle);
+}
+
+// ── Vista CRM: Directorio de Clientes y Cartera por Cobrar ───────────────────
+function getDaysSince(isoDate) {
+  if (!isoDate) return 999;
+  const [y, m, d] = String(isoDate).split('-').map(Number);
+  if (!y || !m || !d) return 999;
+  const target = new Date(y, m - 1, d);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.max(0, Math.round((today - target) / 86400000));
+}
+
+function renderClientsView() {
+  const allClients = Array.from(state.clientSummaryMap.values()).map((c) => {
+    const daysSinceLast = getDaysSince(c.lastDate);
+    let topProd = 'Sin registro';
+    let maxCnt = 0;
+    for (const [p, cnt] of c.prodCounts.entries()) {
+      if (cnt > maxCnt) {
+        maxCnt = cnt;
+        topProd = p;
+      }
+    }
+    return {
+      ...c,
+      daysSinceLast,
+      topProduct: topProd,
+      isVip: c.paidCount >= 2,
+      hasPending: c.pendingAmount > 0,
+      isInactive: daysSinceLast >= 30 && c.pendingAmount === 0,
+    };
+  });
+
+  const totalPendingAmount = allClients.reduce((a, c) => a + c.pendingAmount, 0);
+  const clientsWithPending = allClients.filter((c) => c.hasPending).length;
+  const vipClients = allClients.filter((c) => c.isVip).length;
+  const inactiveClients = allClients.filter((c) => c.isInactive).length;
+  const totalApprovedRev = allClients.reduce((a, c) => a + c.paidRevenue, 0);
+  const avgLtv = allClients.length > 0 ? totalApprovedRev / allClients.length : 0;
+
+  const pendEl = document.getElementById('crm-kpi-pending-amount');
+  const pendSub = document.getElementById('crm-kpi-pending-sub');
+  const totEl = document.getElementById('crm-kpi-total-clients');
+  const vipEl = document.getElementById('crm-kpi-vip-clients');
+  const vipSub = document.getElementById('crm-kpi-vip-sub');
+  const ltvEl = document.getElementById('crm-kpi-avg-ltv');
+  const inactSub = document.getElementById('crm-kpi-inactive-sub');
+  const findingEl = document.getElementById('crm-finding-text');
+
+  if (pendEl) pendEl.textContent = formatMoney(totalPendingAmount);
+  if (pendSub) pendSub.textContent = `${clientsWithPending} cliente(s) con cobro pendiente`;
+  if (totEl) totEl.textContent = String(allClients.length);
+  if (vipEl) vipEl.textContent = String(vipClients);
+  if (vipSub) {
+    const vipPct = allClients.length ? Math.round((vipClients / allClients.length) * 100) : 0;
+    vipSub.textContent = `${vipPct}% de tasa de recompra (2+ órdenes)`;
+  }
+  if (ltvEl) ltvEl.textContent = formatMoney(avgLtv);
+  if (inactSub) inactSub.textContent = `${inactiveClients} cliente(s) sin compra hace +30 días`;
+
+  if (findingEl) {
+    findingEl.innerHTML =
+      `Base comercial de <strong>${allClients.length} clientes</strong> · ` +
+      `Cartera por cobrar: <strong>${formatMoney(totalPendingAmount)}</strong> (${clientsWithPending} clientes) · ` +
+      `<strong>${vipClients} clientes recurrentes VIP</strong>`;
+  }
+
+  document.querySelectorAll('.crm-kpi-tile').forEach((tile) => {
+    tile.classList.toggle('active', tile.dataset.crmFilter === state.crmFilter);
+  });
+  document.querySelectorAll('[data-crm-tab]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.crmTab === state.crmFilter);
+  });
+
+  const q = state.crmSearchQuery.trim().toLowerCase();
+  const filtered = allClients
+    .filter((c) => {
+      if (state.crmFilter === 'pending' && !c.hasPending) return false;
+      if (state.crmFilter === 'vip' && !c.isVip) return false;
+      if (state.crmFilter === 'inactive' && !c.isInactive) return false;
+      if (q) {
+        const hay = `${c.name} ${c.topProduct}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (state.crmFilter === 'pending') return b.pendingAmount - a.pendingAmount;
+      return b.paidRevenue - a.paidRevenue;
+    });
+
+  const countLbl = document.getElementById('crm-count-summary');
+  if (countLbl) {
+    countLbl.textContent = `${filtered.length} cliente(s) en vista · ${allClients.length} registrados`;
+  }
+
+  const tbody = document.getElementById('crm-tbody');
+  if (!tbody) return;
+
+  if (!filtered.length) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="7" style="text-align:center;padding:28px;color:var(--muted)">
+          No hay clientes en este segmento con el criterio actual.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = filtered
+    .map((c) => {
+      const av = getCustomerAvatarData(c.name);
+      let segBadge = `<span class="badge-pill badge-prep" style="height:19px;font-size:10.5px;padding:0 6px">Activo</span>`;
+      if (c.hasPending) {
+        segBadge = `<span class="badge-pill badge-pending" style="height:19px;font-size:10.5px;padding:0 6px">Por cobrar (${c.pendingCount})</span>`;
+      } else if (c.isVip) {
+        segBadge = `<span class="badge-pill badge-paid" style="height:19px;font-size:10.5px;padding:0 6px">VIP Recurrente</span>`;
+      } else if (c.isInactive) {
+        segBadge = `<span class="badge-pill badge-cancelled" style="height:19px;font-size:10.5px;padding:0 6px">Inactivo ${c.daysSinceLast}d</span>`;
+      }
+
+      const recencyTxt =
+        c.daysSinceLast === 0
+          ? 'Hoy'
+          : c.daysSinceLast === 1
+            ? 'Ayer'
+            : `Hace ${c.daysSinceLast} días`;
+
+      return `
+        <tr data-client-name="${escapeHtml(c.name)}">
+          <td class="col-client">
+            <div class="client-cell">
+              <span class="client-avatar" style="background-color:${av.bg};color:${av.fg}">
+                ${escapeHtml(av.initials)}
+              </span>
+              <div class="client-texts">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span class="client-name">${escapeHtml(c.name)}</span>
+                  ${segBadge}
+                </div>
+                <span class="client-sub">Cliente desde ${escapeHtml(formatShortDate(c.firstDate))}</span>
+              </div>
+            </div>
+          </td>
+          <td>
+            <span style="font-weight:600;color:var(--text)">${c.paidCount} aprob.</span>
+            <span class="date-cell-sub">${c.count} totales</span>
+          </td>
+          <td class="col-product">
+            <span class="product-cell-text" title="${escapeHtml(c.topProduct)}">${escapeHtml(c.topProduct)}</span>
+          </td>
+          <td class="col-date">
+            <span class="date-cell-main">${escapeHtml(c.lastDate)}</span>
+            <span class="date-cell-sub">${escapeHtml(recencyTxt)}</span>
+          </td>
+          <td class="col-amount">${formatMoney(c.paidRevenue)}</td>
+          <td class="col-amount" style="color:${c.pendingAmount > 0 ? 'var(--warning)' : 'var(--faint)'}">
+            ${c.pendingAmount > 0 ? formatMoney(c.pendingAmount) : '$0.00'}
+          </td>
+          <td class="col-actions">
+            <div class="row-actions-group">
+              <button type="button" class="row-btn btn-crm-wa" data-client="${escapeHtml(c.name)}" title="Copiar mensaje de WhatsApp para este cliente">
+                WhatsApp
+              </button>
+              <button type="button" class="row-btn btn-crm-pdf" data-client="${escapeHtml(c.name)}" title="Generar Estado de Cuenta en PDF con membrete">
+                Estado PDF
+              </button>
+              <button type="button" class="row-btn btn-crm-orders" data-client="${escapeHtml(c.name)}" title="Ver pedidos de este cliente">
+                Pedidos
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+}
+
+function buildClientWhatsAppMessage(clientName) {
+  const clientOrders = state.orders.filter((o) => o.cliente === clientName);
+  const pending = clientOrders.filter((o) => o.estado === 'Pendiente');
+  const paid = clientOrders.filter((o) => PAID_STATES.has(o.estado));
+  const pendingSum = pending.reduce((a, o) => a + Number(o.monto || 0), 0);
+
+  if (pending.length > 0) {
+    const lines = pending.map((o) => `• Ref. #${o.id} (${o.fecha}): ${o.producto} -> ${formatMoney(o.monto)}`);
+    return [
+      `Hola *${clientName}*, te saludamos de *Café Pa'l Monte* (San Antonio, Jamundí).`,
+      `Te compartimos el resumen de tu(s) pedido(s) pendiente(s) de confirmación de pago:`,
+      ...lines,
+      `*Total pendiente por cancelar: ${formatMoney(pendingSum)}*`,
+      `Quedamos atentos a tu comprobante. Muchas gracias por preferir nuestro café de origen.`,
+    ].join('\n');
+  }
+
+  return [
+    `Hola *${clientName}*, te saludamos de *Café Pa'l Monte* (San Antonio, Jamundí).`,
+    `Gracias por tu confianza: registramos ${paid.length} pedido(s) aprobado(s) en tu historial comercial.`,
+    `Esta semana tenemos tueste fresco disponible en nuestras líneas de origen y microlotes especiales. ¿Deseas que programemos tu próximo despacho?`,
+  ].join('\n');
 }
 
 // ── Vista Sistema, Migración de BD y Actualizaciones ─────────────────────────
@@ -1388,10 +1744,63 @@ function openOrderModal(orderToEdit = null) {
     inputState.value = 'Pendiente';
   }
 
+  renderCatalogPillsInModal();
+
   backdrop.classList.remove('hidden');
   setTimeout(() => {
     (orderToEdit ? inputClient : inputId).focus();
   }, 30);
+}
+
+function renderCatalogPillsInModal() {
+  const box = document.getElementById('order-catalog-pills');
+  if (!box) return;
+  const catalog = state.catalogProducts && state.catalogProducts.length
+    ? state.catalogProducts
+    : [
+        { name: "Café Especial Pa'l Monte Grano 500g", unitPrice: 32000 },
+        { name: "Café Especial San Antonio Molido 500g", unitPrice: 32000 },
+        { name: 'Café Orgánico Sierra de Jamundí 500g', unitPrice: 35000 },
+        { name: 'Café Bourbón Rosado Reserva 340g', unitPrice: 42000 },
+        { name: 'Café Especial Tostión Media 250g', unitPrice: 18500 },
+        { name: "Kit Degustación Pa'l Monte (3x250g)", unitPrice: 56000 },
+        { name: 'Bulto Mayorista Café Excelso 2.5kg', unitPrice: 145000 },
+      ];
+
+  box.innerHTML = catalog
+    .map(
+      (p, idx) => `
+      <button type="button" class="catalog-pill-btn" data-cat-idx="${idx}">
+        <span>+1 ${escapeHtml(p.name)}</span>
+        <span class="catalog-pill-price">${formatMoneyCompact(p.unitPrice)}</span>
+      </button>
+    `
+    )
+    .join('');
+
+  box.querySelectorAll('.catalog-pill-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const p = catalog[Number(btn.dataset.catIdx)];
+      if (!p) return;
+      const inputProd = document.getElementById('order-input-product');
+      const inputAmount = document.getElementById('order-input-amount');
+      if (!inputProd || !inputAmount) return;
+
+      const curText = inputProd.value.trim();
+      const escapedName = p.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const rx = new RegExp(`(\\d+)x\\s+${escapedName}`);
+      const match = curText.match(rx);
+      if (match) {
+        const nextQty = Number(match[1]) + 1;
+        inputProd.value = curText.replace(rx, `${nextQty}x ${p.name}`);
+      } else {
+        inputProd.value = curText ? `${curText}, 1x ${p.name}` : `1x ${p.name}`;
+      }
+
+      const curAmount = Number(inputAmount.value || 0);
+      inputAmount.value = (curAmount + Number(p.unitPrice)).toFixed(2);
+    });
+  });
 }
 
 function closeOrderModal() {
@@ -1782,7 +2191,7 @@ function bindDomEvents() {
     if (!order) return;
     const receipt = [
       "Café Pa'l Monte · Comprobante de Pedido",
-      `Referencia: ${order.id}`,
+      `Referencia: #${order.id}`,
       `Cliente: ${order.cliente}`,
       `Producto(s): ${order.producto}`,
       `Monto: ${formatMoney(order.monto)}`,
@@ -1790,7 +2199,62 @@ function bindDomEvents() {
       `Estado: ${order.estado}`,
     ].join('\n');
     await api.copyToClipboard(receipt);
-    showToast('Comprobante copiado al portapapeles.');
+    showToast('Resumen del pedido copiado al portapapeles.');
+  });
+
+  document.getElementById('btn-drawer-receipt-pdf')?.addEventListener('click', async () => {
+    const order = state.orders.find((o) => o.id === state.inspectingOrderId);
+    if (!order) return;
+    const cliStats = state.clientSummaryMap.get(order.cliente) || { count: 1, paidRevenue: order.monto };
+    setStatusText(`Generando remisión oficial PDF para #${order.id}...`);
+    const res = await api.exportOrderReceipt({
+      order,
+      clientStats: cliStats,
+      openAfter: true,
+    });
+    if (res && res.ok) {
+      if (res.reports) state.reports = res.reports;
+      renderReportsList();
+      showToast(`Remisión PDF #${order.id} generada y abierta.`);
+      setStatusText(`Remisión guardada: ${res.filePath || ''}`);
+    } else {
+      showToast((res && res.message) || 'No se pudo generar la remisión PDF.');
+    }
+  });
+
+  document.querySelectorAll('[data-wa-template]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const order = state.orders.find((o) => o.id === state.inspectingOrderId);
+      if (!order) return;
+      const tpl = btn.dataset.waTemplate;
+      let msg = '';
+      if (tpl === 'confirm') {
+        msg = [
+          `Hola *${order.cliente}*, te saludamos de *Café Pa'l Monte* (San Antonio, Jamundí).`,
+          `Confirmamos la recepción de tu pedido *#${order.id}*:`,
+          `• Producto(s): ${order.producto}`,
+          `• Valor total: *${formatMoney(order.monto)}*`,
+          `• Estado actual: *${order.estado}*`,
+          `Gracias por preferir nuestro café especial de origen.`,
+        ].join('\n');
+      } else if (tpl === 'shipped') {
+        msg = [
+          `Hola *${order.cliente}*, ¡tu café va en camino!`,
+          `Tu pedido *#${order.id}* (${order.producto}) de *Café Pa'l Monte* ya fue despachado.`,
+          `Valor: *${formatMoney(order.monto)}*. Quedamos atentos a que lo recibas en perfecto estado.`,
+        ].join('\n');
+      } else if (tpl === 'payment') {
+        msg = [
+          `Hola *${order.cliente}*, te escribimos de *Café Pa'l Monte*.`,
+          `Te recordamos amablemente el saldo pendiente de tu pedido *#${order.id}* del ${order.fecha}:`,
+          `• Detalle: ${order.producto}`,
+          `• Total por pagar: *${formatMoney(order.monto)}*`,
+          `Apenas realices la transferencia envíanos el soporte por este chat para actualizar tu estado de cuenta. ¡Muchas gracias!`,
+        ].join('\n');
+      }
+      await api.copyToClipboard(msg);
+      showToast('Mensaje de WhatsApp copiado al portapapeles.');
+    });
   });
 
   document.getElementById('btn-drawer-edit')?.addEventListener('click', () => {
@@ -1851,6 +2315,13 @@ function bindDomEvents() {
   document.getElementById('btn-cancel-order-modal')?.addEventListener('click', closeOrderModal);
   document.getElementById('btn-generate-order-id')?.addEventListener('click', () => {
     document.getElementById('order-input-id').value = generateOrderId();
+  });
+
+  document.getElementById('btn-clear-catalog-items')?.addEventListener('click', () => {
+    const inputProd = document.getElementById('order-input-product');
+    const inputAmount = document.getElementById('order-input-amount');
+    if (inputProd) inputProd.value = '';
+    if (inputAmount) inputAmount.value = '';
   });
 
   document.getElementById('order-form')?.addEventListener('submit', async (e) => {
@@ -2029,6 +2500,91 @@ function bindDomEvents() {
     });
   });
 
+  document.getElementById('btn-rep-custom-excel')?.addEventListener('click', () => {
+    handleCustomReportExport('excel');
+  });
+
+  document.getElementById('btn-rep-custom-pdf')?.addEventListener('click', () => {
+    handleCustomReportExport('pdf');
+  });
+
+  // Controles del módulo Clientes y Cartera (CRM)
+  document.querySelectorAll('.crm-kpi-tile').forEach((tile) => {
+    tile.addEventListener('click', () => {
+      state.crmFilter = tile.dataset.crmFilter || 'all';
+      renderClientsView();
+    });
+  });
+
+  document.querySelectorAll('[data-crm-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.crmFilter = btn.dataset.crmTab || 'all';
+      renderClientsView();
+    });
+  });
+
+  document.getElementById('crm-search-input')?.addEventListener('input', (e) => {
+    state.crmSearchQuery = e.target.value || '';
+    renderClientsView();
+  });
+
+  document.getElementById('btn-crm-export-excel')?.addEventListener('click', () => {
+    const pendingOrders = state.orders.filter((o) => o.estado === 'Pendiente');
+    const targetOrders = pendingOrders.length ? pendingOrders : state.orders;
+    const title = pendingOrders.length
+      ? 'REPORTE DE CARTERA PENDIENTE POR COBRAR'
+      : 'REPORTE GENERAL DE CLIENTES Y PEDIDOS';
+    triggerExport('excel', targetOrders, state.dateFrom, state.dateTo, title);
+  });
+
+  document.getElementById('btn-crm-export-pdf')?.addEventListener('click', () => {
+    const pendingOrders = state.orders.filter((o) => o.estado === 'Pendiente');
+    const targetOrders = pendingOrders.length ? pendingOrders : state.orders;
+    const title = pendingOrders.length
+      ? 'REPORTE DE CARTERA PENDIENTE POR COBRAR'
+      : 'REPORTE GENERAL DE CLIENTES Y PEDIDOS';
+    triggerExport('pdf', targetOrders, state.dateFrom, state.dateTo, title);
+  });
+
+  document.getElementById('crm-tbody')?.addEventListener('click', async (e) => {
+    const waBtn = e.target.closest('.btn-crm-wa');
+    if (waBtn) {
+      const cli = waBtn.dataset.client;
+      const msg = buildClientWhatsAppMessage(cli);
+      await api.copyToClipboard(msg);
+      showToast(`Mensaje de WhatsApp para ${cli} copiado al portapapeles.`);
+      return;
+    }
+
+    const pdfBtn = e.target.closest('.btn-crm-pdf');
+    if (pdfBtn) {
+      const cli = pdfBtn.dataset.client;
+      const cliOrders = state.orders.filter((o) => o.cliente === cli);
+      const dates = cliOrders.map((o) => o.fecha).filter(Boolean).sort();
+      await triggerExport(
+        'pdf',
+        cliOrders,
+        dates[0] || state.dateFrom,
+        dates[dates.length - 1] || state.dateTo,
+        `ESTADO DE CUENTA · ${cli.toUpperCase()}`
+      );
+      return;
+    }
+
+    const ordBtn = e.target.closest('.btn-crm-orders');
+    if (ordBtn) {
+      const cli = ordBtn.dataset.client;
+      state.searchQuery = cli;
+      const tableSearch = document.getElementById('filter-search');
+      const globalSearch = document.getElementById('global-search-input');
+      if (tableSearch) tableSearch.value = cli;
+      if (globalSearch) globalSearch.value = cli;
+      switchView('panel');
+      applyPeriodPreset('all');
+      showToast(`Filtrando pedidos de ${cli}.`);
+    }
+  });
+
   document.getElementById('btn-refresh-reports')?.addEventListener('click', async () => {
     state.reports = await api.listReports();
     renderReportsList();
@@ -2060,6 +2616,27 @@ function bindDomEvents() {
 
   document.getElementById('btn-sys-open-folder')?.addEventListener('click', async () => {
     await api.openDataFolder();
+  });
+
+  document.getElementById('btn-seed-demo-data')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-seed-demo-data');
+    if (btn) btn.disabled = true;
+    setStatusText('Sembrando pedidos realistas hasta la hora actual y generando reportes PDF/Excel...');
+    const res = await api.seedDemoData();
+    if (btn) btn.disabled = false;
+    if (res && res.ok) {
+      state.orders = res.orders || state.orders;
+      state.stats = res.stats || state.stats;
+      state.reports = res.reports || state.reports;
+      adjustDefaultDateRangeToOrders();
+      applyPeriodPreset('all');
+      renderSystemView();
+      renderReportsList();
+      showToast(`Se cargaron ${res.totalInDb} pedidos realistas hasta hoy (${res.latestDate}) y 3 reportes oficiales.`);
+      setStatusText(`Datos de prueba actualizados hasta hoy (${res.totalInDb} pedidos).`);
+    } else {
+      showToast((res && res.error) || 'No se pudieron cargar los datos de prueba.');
+    }
   });
 
   document.getElementById('btn-migrate-pick-folder')?.addEventListener('click', async () => {
@@ -2287,6 +2864,10 @@ async function bootstrap() {
   state.dbPath = init.dbPath || '';
   state.reportsDir = init.reportsDir || '';
   state.knownLegacySources = init.knownLegacySources || [];
+  state.catalogProducts = init.catalogProducts || [];
+  if (init.settings?.monthlyGoal) {
+    state.monthlyGoal = Number(init.settings.monthlyGoal) || 2500000;
+  }
 
   if (init.logoDataUrl) {
     const logoImg = document.getElementById('brand-logo');

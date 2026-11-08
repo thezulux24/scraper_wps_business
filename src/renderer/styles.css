@@ -1233,8 +1233,8 @@ table,
 
 /* Cabeceras 12px, sentence case, gris, sin banda de fondo (app-screens.md §7.2) */
 .orders-table thead th {
-  height: 36px;
-  padding: 0 12px;
+  height: 34px;
+  padding: 0 9px;
   text-align: left;
   font-size: var(--fs-small);
   font-weight: 500;
@@ -1282,10 +1282,16 @@ table,
 
 .orders-table tbody td {
   height: var(--row-height);
-  padding: 8px 12px;
+  padding: 7px 9px;
   border-bottom: 1px solid var(--rule);
   vertical-align: middle;
   font-size: var(--fs-body);
+}
+
+.orders-table td.col-id,
+.orders-table td.col-date,
+.orders-table td.col-state {
+  white-space: nowrap;
 }
 
 .orders-table tbody tr:last-child td {
@@ -1386,6 +1392,7 @@ table,
 .client-name {
   font-weight: 500;
   color: var(--text);
+  max-width: 150px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1393,15 +1400,16 @@ table,
 }
 
 .client-sub {
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--faint);
   line-height: 1.2;
   margin-top: 1px;
+  white-space: nowrap;
 }
 
 .product-cell-text {
   color: var(--text);
-  max-width: 300px;
+  max-width: 175px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1501,13 +1509,13 @@ table,
 }
 
 .row-btn {
-  height: 26px;
-  padding: 0 8px;
+  height: 24px;
+  padding: 0 7px;
   border-radius: 5px;
   border: 1px solid var(--border);
   background-color: var(--surface);
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -2052,6 +2060,48 @@ table,
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.catalog-pills-box {
+  margin-top: 4px;
+  padding: 8px;
+  border-radius: 8px;
+  background-color: var(--raised);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 118px;
+  overflow-y: auto;
+}
+
+.catalog-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background-color: var(--surface);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background-color var(--t-hover) ease, border-color var(--t-hover) ease, transform var(--t-press) var(--ease-out);
+}
+
+.catalog-pill-btn:hover {
+  border-color: var(--accent);
+  background-color: var(--accent-soft);
+}
+
+.catalog-pill-btn:active {
+  transform: scale(0.97);
+}
+
+.catalog-pill-price {
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
 }
 
 .form-field {

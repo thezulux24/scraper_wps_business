@@ -39,6 +39,17 @@
           <span class="nav-badge" id="nav-orders-badge">0</span>
         </button>
 
+        <button type="button" class="nav-btn" data-view="clients" id="nav-btn-clients">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+          </svg>
+          <span>Clientes y Cartera</span>
+          <span class="nav-badge" id="nav-clients-badge">0</span>
+        </button>
+
         <button type="button" class="nav-btn" data-view="analytics" id="nav-btn-analytics">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M4 19.5h16" />
@@ -339,6 +350,7 @@
                   <button type="button" data-ov-side="states" class="active" aria-pressed="true">Estados</button>
                   <button type="button" data-ov-side="products" aria-pressed="false">Productos</button>
                   <button type="button" data-ov-side="clients" aria-pressed="false">Clientes</button>
+                  <button type="button" data-ov-side="goal" aria-pressed="false">Meta</button>
                 </div>
               </div>
               <div id="ov-side-content"></div>
@@ -479,6 +491,101 @@
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =================================================================
+             VISTA 1.5: CLIENTES Y CARTERA POR COBRAR (CRM COMERCIAL)
+             ================================================================= -->
+        <section class="view-section" id="view-clients" aria-label="Clientes y Cartera">
+          <div class="title-row">
+            <div class="title-row-left">
+              <h1 class="page-title">Directorio de Clientes y Cartera por Cobrar</h1>
+              <p class="page-subtitle" id="crm-finding-text">
+                Seguimiento de cuentas por cobrar, clientes recurrentes (VIP) y valor acumulado de compra
+              </p>
+            </div>
+            <div class="title-row-right">
+              <button type="button" class="btn btn-outline btn-sm" id="btn-crm-export-excel">
+                Exportar Cartera Excel
+              </button>
+              <button type="button" class="btn btn-primary btn-sm" id="btn-crm-export-pdf">
+                Reporte Cartera PDF
+              </button>
+            </div>
+          </div>
+
+          <div class="kpis-strip" style="grid-template-columns: repeat(4, minmax(0, 1fr))">
+            <button type="button" class="kpi-cell crm-kpi-tile" data-crm-filter="pending">
+              <div class="kpi-cell-top">
+                <span class="kpi-label">Cartera pendiente por cobrar</span>
+                <span class="badge-pill badge-pending" style="height:19px;font-size:11px;padding:0 7px">Seguimiento</span>
+              </div>
+              <div class="kpi-value-lead" id="crm-kpi-pending-amount">$0.00</div>
+              <div class="kpi-meta" id="crm-kpi-pending-sub">0 clientes con saldo pendiente</div>
+            </button>
+
+            <button type="button" class="kpi-cell crm-kpi-tile active" data-crm-filter="all">
+              <span class="kpi-label">Clientes únicos registrados</span>
+              <div class="kpi-value" id="crm-kpi-total-clients">0</div>
+              <div class="kpi-meta" id="crm-kpi-total-sub">Base activa en WhatsApp Business</div>
+            </button>
+
+            <button type="button" class="kpi-cell crm-kpi-tile" data-crm-filter="vip">
+              <span class="kpi-label">Clientes recurrentes (VIP)</span>
+              <div class="kpi-value" id="crm-kpi-vip-clients">0</div>
+              <div class="kpi-meta" id="crm-kpi-vip-sub">2 o más compras aprobadas</div>
+            </button>
+
+            <button type="button" class="kpi-cell crm-kpi-tile" data-crm-filter="inactive">
+              <span class="kpi-label">Valor promedio por cliente (LTV)</span>
+              <div class="kpi-value" id="crm-kpi-avg-ltv">$0.00</div>
+              <div class="kpi-meta" id="crm-kpi-inactive-sub">Clic para ver inactivos (+30d)</div>
+            </button>
+          </div>
+
+          <div class="filters-toolbar">
+            <div class="filters-cluster">
+              <div class="segmented" role="group" aria-label="Segmento de clientes">
+                <button type="button" data-crm-tab="all" class="active">Todos los clientes</button>
+                <button type="button" data-crm-tab="pending">Con saldo por cobrar</button>
+                <button type="button" data-crm-tab="vip">Recurrentes (VIP)</button>
+                <button type="button" data-crm-tab="inactive">Para reactivar (+30d)</button>
+              </div>
+            </div>
+            <div class="filters-cluster">
+              <input
+                type="search"
+                id="crm-search-input"
+                class="input-control input-search"
+                placeholder="Buscar cliente o producto frecuente..."
+              />
+            </div>
+          </div>
+
+          <div class="table-card">
+            <div class="table-card-header">
+              <div class="table-card-title-wrap">
+                <span class="table-card-title">Estado de Cuenta por Cliente</span>
+                <span class="table-count-label" id="crm-count-summary">0 clientes en vista</span>
+              </div>
+            </div>
+            <div class="table-scroll">
+              <table class="orders-table" aria-label="Directorio de clientes y cartera">
+                <thead>
+                  <tr>
+                    <th>Cliente y Segmento</th>
+                    <th>Órdenes</th>
+                    <th>Producto más solicitado</th>
+                    <th>Última compra</th>
+                    <th class="col-amount">Facturación aprobada</th>
+                    <th class="col-amount">Saldo por cobrar</th>
+                    <th class="col-actions">Acciones comerciales</th>
+                  </tr>
+                </thead>
+                <tbody id="crm-tbody"></tbody>
+              </table>
             </div>
           </div>
         </section>
@@ -692,6 +799,41 @@
             </div>
           </div>
 
+          <!-- Generador de Reporte Contable Personalizado -->
+          <div class="panel">
+            <div class="panel-header panel-header-inline">
+              <div class="panel-title-group">
+                <h2 class="panel-title">Generador de Reporte Personalizado o Estado de Cuenta</h2>
+                <p class="panel-subtitle">Filtra por rango de fechas, estado contable o cliente específico y exporta con membrete oficial</p>
+              </div>
+            </div>
+            <div class="filters-toolbar" style="background:var(--surface)">
+              <div class="filters-cluster">
+                <span class="filter-inline-label">Desde</span>
+                <input type="date" id="rep-custom-from" class="input-control input-date" />
+                <span class="filter-inline-label">Hasta</span>
+                <input type="date" id="rep-custom-to" class="input-control input-date" />
+                <select id="rep-custom-state" class="select-control">
+                  <option value="ALL">Todos los estados</option>
+                  <option value="PAID">Solo aprobadas (Cierre contable)</option>
+                  <option value="Pendiente">Solo pendientes por cobrar (Cartera)</option>
+                  <option value="Cancelado">Solo canceladas</option>
+                </select>
+                <select id="rep-custom-client" class="select-control" style="max-width:210px">
+                  <option value="ALL">Todos los clientes</option>
+                </select>
+              </div>
+              <div class="filters-cluster">
+                <button type="button" class="btn btn-outline btn-sm" id="btn-rep-custom-excel">
+                  Generar Excel (.xlsx)
+                </button>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-rep-custom-pdf">
+                  Generar PDF Membrete
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div class="panel">
             <div class="panel-header">
               <div class="panel-title-group">
@@ -749,6 +891,9 @@
                   </button>
                   <button type="button" class="btn btn-outline" id="btn-sys-open-folder">
                     Abrir carpeta de datos en Windows
+                  </button>
+                  <button type="button" class="btn btn-outline" id="btn-seed-demo-data" title="Poblar base de datos con pedidos realistas hasta la hora actual y regenerar reportes PDF/Excel">
+                    Cargar datos de prueba (hasta hoy)
                   </button>
                 </div>
               </div>
@@ -904,12 +1049,32 @@
             </button>
           </div>
         </div>
+
+        <div class="drawer-section">
+          <span class="drawer-section-title">Plantillas rápidas para WhatsApp Business</span>
+          <div class="filters-cluster">
+            <button type="button" class="btn btn-outline btn-sm" data-wa-template="confirm">
+              Confirmar pedido
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" data-wa-template="shipped">
+              Aviso de despacho
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" data-wa-template="payment">
+              Recordatorio de cobro
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="drawer-footer">
-        <button type="button" class="btn btn-outline btn-sm" id="btn-drawer-copy">
-          Copiar comprobante
-        </button>
+        <div class="filters-cluster">
+          <button type="button" class="btn btn-primary btn-sm" id="btn-drawer-receipt-pdf">
+            Remisión PDF
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" id="btn-drawer-copy">
+            Copiar resumen
+          </button>
+        </div>
         <div class="filters-cluster">
           <button type="button" class="btn btn-outline btn-sm" id="btn-drawer-edit">
             Editar
@@ -946,12 +1111,17 @@
 
             <div class="form-field full">
               <label class="form-label" for="order-input-client">Nombre del cliente</label>
-              <input type="text" id="order-input-client" class="input-control" placeholder="Ej. Cafetería La Estación" required />
+              <input type="text" id="order-input-client" list="clients-datalist" class="input-control" placeholder="Ej. Cafetería San Antonio Plaza" required />
+              <datalist id="clients-datalist"></datalist>
             </div>
 
             <div class="form-field full">
-              <label class="form-label" for="order-input-product">Producto(s) y cantidades</label>
-              <input type="text" id="order-input-product" class="input-control" placeholder="Ej. 4x Café Especial 500g Molido" required />
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <label class="form-label" for="order-input-product">Producto(s) y cantidades</label>
+                <button type="button" class="btn btn-ghost btn-sm" id="btn-clear-catalog-items" style="height:22px;padding:0 6px;font-size:11px">Limpiar productos</button>
+              </div>
+              <input type="text" id="order-input-product" class="input-control" placeholder="Ej. 2x Café Especial 500g Molido" required />
+              <div class="catalog-pills-box" id="order-catalog-pills" aria-label="Catálogo oficial Café Pa'l Monte"></div>
             </div>
 
             <div class="form-field">

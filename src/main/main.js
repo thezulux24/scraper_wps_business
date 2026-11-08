@@ -24,6 +24,7 @@ const {
 const { OrderDatabase } = require('./database');
 const { ReportExporter } = require('./exporter');
 const { WhatsAppScraperManager } = require('./scraper');
+const { CATALOG_PRODUCTS, seedDatabaseAndReports } = require('./demo-seeder');
 const {
   getInstallStatus,
   performInstallOrUpdate,
@@ -146,6 +147,14 @@ function createWindow() {
           `);
           await sleep(350);
 
+          // 2.5. Clientes y Cartera CRM (Light)
+          await mainWindow.webContents.executeJavaScript(`
+            document.querySelector('[data-view="clients"]')?.click();
+          `);
+          await sleep(450);
+          img = await mainWindow.webContents.capturePage();
+          fs.writeFileSync(path.join(outDir, 'v2-clients-light.png'), img.toPNG());
+
           // 3. Analítica Comercial (Light)
           await mainWindow.webContents.executeJavaScript(`
             document.querySelector('[data-view="analytics"]')?.click();
@@ -169,6 +178,19 @@ function createWindow() {
           await sleep(400);
           img = await mainWindow.webContents.capturePage();
           fs.writeFileSync(path.join(outDir, 'v2-system-light.png'), img.toPNG());
+
+          // 5.5. Modal de Nuevo Pedido con Catálogo Oficial
+          await mainWindow.webContents.executeJavaScript(`
+            document.querySelector('[data-view="panel"]')?.click();
+            document.getElementById('btn-add-order')?.click();
+          `);
+          await sleep(400);
+          img = await mainWindow.webContents.capturePage();
+          fs.writeFileSync(path.join(outDir, 'v2-order-modal-light.png'), img.toPNG());
+          await mainWindow.webContents.executeJavaScript(`
+            document.getElementById('btn-close-order-modal')?.click();
+          `);
+          await sleep(300);
 
           // 6. Panel de Pedidos (Dark Mode - Tueste Nocturno)
           await mainWindow.webContents.executeJavaScript(`
@@ -337,6 +359,7 @@ function registerIpcHandlers() {
       connection: scraper.getStatusSnapshot(),
       logoDataUrl: readLogoDataUrl(),
       installStatus: getInstallStatus(),
+      catalogProducts: CATALOG_PRODUCTS,
       launchMode: process.argv.includes('--uninstall-wizard')
         ? 'uninstall-wizard'
         : process.argv.includes('--wizard')
@@ -438,12 +461,12 @@ function registerIpcHandlers() {
 
   // ── Reportes PDF / Excel ───────────────────────────────────────────────────
   ipcMain.handle('reports:export', async (_e, payload = {}) => {
-    const { format, orders, dateFrom, dateTo, openAfter = true } = payload;
+    const { format, orders, dateFrom, dateTo, customTitle = '', openAfter = true } = payload;
     try {
       const res =
         format === 'pdf'
-          ? await exporter.toPdf(orders || [], dateFrom, dateTo)
-          : await exporter.toExcel(orders || [], dateFrom, dateTo);
+          ? await exporter.toPdf(orders || [], dateFrom, dateTo, customTitle)
+          : await exporter.toExcel(orders || [], dateFrom, dateTo, customTitle);
       if (res.ok && openAfter && res.filePath) {
         await shell.openPath(res.filePath);
       }
@@ -453,6 +476,22 @@ function registerIpcHandlers() {
       };
     } catch (err) {
       return { ok: false, message: `Error al generar reporte: ${err.message}` };
+    }
+  });
+
+  ipcMain.handle('reports:exportReceipt', async (_e, payload = {}) => {
+    const { order, clientStats = {}, openAfter = true } = payload;
+    try {
+      const res = await exporter.toOrderReceiptPdf(order || {}, clientStats);
+      if (res.ok && openAfter && res.filePath) {
+        await shell.openPath(res.filePath);
+      }
+      return {
+        ...res,
+        reports: exporter.listReports(),
+      };
+    } catch (err) {
+      return { ok: false, message: `Error al generar remisión PDF: ${err.message}` };
     }
   });
 
@@ -517,6 +556,20 @@ function registerIpcHandlers() {
       stats: db.getSyncStats(),
       reports: exporter.listReports(),
     };
+  });
+
+  ipcMain.handle('migration:seedDemoData', async () => {
+    try {
+      const res = await seedDatabaseAndReports({
+        db,
+        exporter,
+        now: new Date(),
+        cleanExisting: true,
+      });
+      return res;
+    } catch (err) {
+      return { ok: false, error: `Error al sembrar datos de prueba: ${err.message}` };
+    }
   });
 
   ipcMain.handle('migration:backup', async () => {
