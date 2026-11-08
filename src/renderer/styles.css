@@ -1633,6 +1633,20 @@ a:focus-visible {
   max-width: 440px;
 }
 
+.modal-wizard {
+  max-width: 560px;
+}
+
+.wizard-progress-box {
+  background-color: var(--bg-surface-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .modal-header {
   padding: 16px 20px;
   border-bottom: 1px solid var(--border-subtle);

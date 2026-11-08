@@ -118,6 +118,16 @@ const api = window.cafeApi || {
   checkForUpdates: async () => ({ ok: true, updateAvailable: false, message: 'Versión v2.0.0 al día.' }),
   runUpdateWizardFile: async () => ({ canceled: true }),
   runUninstallerWizard: async () => ({ ok: true }),
+  getInstallStatus: async () => ({
+    installed: false,
+    installDir: 'C:\\Users\\USER\\AppData\\Local\\Programs\\CafePalMonte',
+  }),
+  pickInstallFolder: async () => ({ canceled: true }),
+  runSetupWizardInstall: async () => ({
+    ok: true,
+    installDir: 'C:\\Users\\USER\\AppData\\Local\\Programs\\CafePalMonte',
+  }),
+  onWizardProgress: () => {},
   onStatus: () => {},
   onConnectionState: () => {},
   onQrUpdate: () => {},
@@ -1016,9 +1026,9 @@ function openConfirmDeleteModal(orderIds) {
   const backdrop = document.getElementById('confirm-modal-backdrop');
   const titleEl = document.getElementById('confirm-modal-title');
   const msg = document.getElementById('confirm-modal-message');
-  const confirmBtn = document.getElementById('btn-confirm-action');
+  const confirmBtn = document.getElementById('btn-accept-confirm');
   if (titleEl) titleEl.textContent = 'Confirmar eliminación';
-  if (confirmBtn) confirmBtn.textContent = 'Eliminar';
+  if (confirmBtn) confirmBtn.textContent = 'Sí, eliminar definitivamente';
   msg.textContent = `¿Confirmas que deseas eliminar ${orderIds.length} pedido(s)? Quedarán marcados como descartados para que la sincronización de WhatsApp no los vuelva a importar.`;
 
   state.confirmActionCallback = async () => {
@@ -1511,33 +1521,122 @@ function bindDomEvents() {
     note.textContent = res.message || `Versión instalada v${state.version} operativa.`;
   });
 
-  document.getElementById('btn-run-uninstaller')?.addEventListener('click', () => {
-    const backdrop = document.getElementById('confirm-modal-backdrop');
-    const titleEl = document.getElementById('confirm-modal-title');
-    const msgEl = document.getElementById('confirm-modal-message');
-    const confirmBtn = document.getElementById('btn-confirm-action');
-    if (titleEl) titleEl.textContent = 'Confirmar desinstalación';
-    if (msgEl) {
-      msgEl.textContent =
-        "¿Deseas abrir el Wizard de desinstalación de Café Pa'l Monte? El sistema creará un respaldo automático de orders.db y conservará tus pedidos en tu carpeta de datos de usuario.";
-    }
-    if (confirmBtn) confirmBtn.textContent = 'Abrir Wizard de Desinstalación';
-
-    state.confirmActionCallback = async () => {
-      closeConfirmModal();
-      const res = await api.runUninstallerWizard();
-      if (res && res.openedSettings) {
-        const note = document.getElementById('updater-status-note');
-        if (note) {
-          note.textContent = res.message;
-          note.classList.remove('hidden');
-        }
-      } else {
-        showToast('Respaldo creado. Iniciando Wizard de desinstalación...');
-      }
-    };
-    backdrop?.classList.remove('hidden');
+  document.getElementById('btn-open-setup-wizard')?.addEventListener('click', () => {
+    openSetupWizardModal('install');
   });
+
+  document.getElementById('btn-close-setup-wizard')?.addEventListener('click', () => {
+    document.getElementById('setup-wizard-modal-backdrop')?.classList.add('hidden');
+  });
+
+  document.getElementById('btn-cancel-setup-wizard')?.addEventListener('click', () => {
+    document.getElementById('setup-wizard-modal-backdrop')?.classList.add('hidden');
+  });
+
+  document.getElementById('btn-wizard-pick-dir')?.addEventListener('click', async () => {
+    const res = await api.pickInstallFolder();
+    if (res && !res.canceled && res.folderPath) {
+      const dirInput = document.getElementById('wizard-target-dir');
+      if (dirInput) dirInput.value = res.folderPath;
+    }
+  });
+
+  document.getElementById('btn-wizard-install-now')?.addEventListener('click', async () => {
+    const installBtn = document.getElementById('btn-wizard-install-now');
+    const uninstBtn = document.getElementById('btn-wizard-uninstall-now');
+    const progWrap = document.getElementById('wizard-progress-wrap');
+    const progBar = document.getElementById('wizard-progress-bar');
+    const progText = document.getElementById('wizard-progress-text');
+    const progPct = document.getElementById('wizard-progress-pct');
+    const resBox = document.getElementById('wizard-result-box');
+    const resTitle = document.getElementById('wizard-result-title');
+    const resDetails = document.getElementById('wizard-result-details');
+
+    const targetDir = document.getElementById('wizard-target-dir')?.value || '';
+    const createDesktopShortcut = document.getElementById('chk-wizard-desktop')?.checked !== false;
+    const createStartMenuShortcut = document.getElementById('chk-wizard-startmenu')?.checked !== false;
+
+    if (installBtn) installBtn.disabled = true;
+    if (uninstBtn) uninstBtn.disabled = true;
+    resBox?.classList.add('hidden');
+    progWrap?.classList.remove('hidden');
+    if (progBar) progBar.style.width = '10%';
+    if (progPct) progPct.textContent = '10%';
+    if (progText) progText.textContent = 'Iniciando instalación en Windows...';
+
+    const res = await api.runSetupWizardInstall({
+      targetDir,
+      createDesktopShortcut,
+      createStartMenuShortcut,
+    });
+
+    if (installBtn) installBtn.disabled = false;
+    if (uninstBtn) uninstBtn.disabled = false;
+
+    if (res && res.ok) {
+      if (progBar) progBar.style.width = '100%';
+      if (progPct) progPct.textContent = '100%';
+      if (progText) progText.textContent = 'Instalación completada.';
+      resBox?.classList.remove('hidden');
+      if (resTitle) resTitle.textContent = 'Aplicación instalada y actualizada en este equipo';
+      if (resDetails) {
+        resDetails.textContent = `Instalada en: ${res.installDir}. Se crearon los accesos directos en tu Escritorio y Menú Inicio con el ícono de Café Pa'l Monte.`;
+      }
+      showToast('Instalación completada con éxito en tu equipo.');
+    } else {
+      showToast((res && res.error) || 'Error durante la instalación.');
+    }
+  });
+
+  document.getElementById('btn-wizard-uninstall-now')?.addEventListener('click', () => {
+    document.getElementById('setup-wizard-modal-backdrop')?.classList.add('hidden');
+    triggerUninstallConfirmation();
+  });
+
+  document.getElementById('btn-run-uninstaller')?.addEventListener('click', () => {
+    triggerUninstallConfirmation();
+  });
+}
+
+async function openSetupWizardModal(mode = 'install') {
+  const backdrop = document.getElementById('setup-wizard-modal-backdrop');
+  const dirInput = document.getElementById('wizard-target-dir');
+  const progWrap = document.getElementById('wizard-progress-wrap');
+  const resBox = document.getElementById('wizard-result-box');
+  progWrap?.classList.add('hidden');
+  resBox?.classList.add('hidden');
+
+  const st = await api.getInstallStatus();
+  if (dirInput && st && st.installDir) {
+    dirInput.value = st.installDir;
+  }
+  backdrop?.classList.remove('hidden');
+  if (mode === 'uninstall') {
+    document.getElementById('btn-wizard-uninstall-now')?.focus();
+  } else {
+    document.getElementById('btn-wizard-install-now')?.focus();
+  }
+}
+
+function triggerUninstallConfirmation() {
+  const backdrop = document.getElementById('confirm-modal-backdrop');
+  const titleEl = document.getElementById('confirm-modal-title');
+  const msgEl = document.getElementById('confirm-modal-message');
+  const confirmBtn = document.getElementById('btn-accept-confirm');
+  if (titleEl) titleEl.textContent = 'Confirmar desinstalación del sistema';
+  if (msgEl) {
+    msgEl.textContent =
+      "¿Deseas desinstalar Café Pa'l Monte de este equipo? El Wizard creará un respaldo automático de orders.db, eliminará los accesos directos del Escritorio y Menú Inicio y borrará la carpeta del programa, conservando intactos tus pedidos y reportes en tu carpeta de usuario.";
+  }
+  if (confirmBtn) confirmBtn.textContent = 'Sí, desinstalar aplicación';
+
+  state.confirmActionCallback = async () => {
+    const targetDir = document.getElementById('wizard-target-dir')?.value || undefined;
+    closeConfirmModal();
+    showToast('Creando respaldo de orders.db y desinstalando aplicación...');
+    await api.runUninstallerWizard({ targetDir });
+  };
+  backdrop?.classList.remove('hidden');
 }
 
 // ── Suscripción a Eventos en Tiempo Real del Proceso Principal ───────────────
@@ -1569,6 +1668,18 @@ function bindIpcStreams() {
     } else if (msg) {
       msg.textContent = qrData.statusText || 'Preparando código QR...';
     }
+  });
+
+  api.onWizardProgress((data) => {
+    if (!data) return;
+    const progWrap = document.getElementById('wizard-progress-wrap');
+    const progBar = document.getElementById('wizard-progress-bar');
+    const progText = document.getElementById('wizard-progress-text');
+    const progPct = document.getElementById('wizard-progress-pct');
+    progWrap?.classList.remove('hidden');
+    if (progBar) progBar.style.width = `${data.percent || 0}%`;
+    if (progPct) progPct.textContent = `${data.percent || 0}%`;
+    if (progText && data.stepText) progText.textContent = data.stepText;
   });
 
   api.onOrdersUpdated((data) => {
@@ -1628,6 +1739,14 @@ async function bootstrap() {
 
   adjustDefaultDateRangeToOrders();
   applyFiltersAndRender();
+
+  if (init.launchMode === 'install-wizard') {
+    switchView('system');
+    openSetupWizardModal('install');
+  } else if (init.launchMode === 'uninstall-wizard') {
+    switchView('system');
+    triggerUninstallConfirmation();
+  }
 }
 
 document.addEventListener('DOMContentLoaded', bootstrap);

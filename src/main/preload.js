@@ -33,6 +33,14 @@ contextBridge.exposeInMainWorld('cafeApi', {
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),
   runUpdateWizardFile: () => ipcRenderer.invoke('updater:runWizardFile'),
   runUninstallerWizard: () => ipcRenderer.invoke('updater:runUninstaller'),
+  getInstallStatus: () => ipcRenderer.invoke('wizard:getStatus'),
+  pickInstallFolder: () => ipcRenderer.invoke('wizard:pickFolder'),
+  runSetupWizardInstall: (opts) => ipcRenderer.invoke('wizard:installOrUpdate', opts),
+  onWizardProgress: (cb) => {
+    const handler = (_e, data) => cb(data);
+    ipcRenderer.on('wizard:progress', handler);
+    return () => ipcRenderer.removeListener('wizard:progress', handler);
+  },
 
   // Eventos en tiempo real
   onStatus: (cb) => {

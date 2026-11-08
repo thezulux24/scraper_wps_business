@@ -670,15 +670,18 @@
             <!-- Tarjeta 3: Wizard de Instalación, Actualización y Desinstalación -->
             <article class="system-card system-card-full">
               <div class="system-card-header">
-                <h2>Asistente de Actualización y Desinstalación (Wizard)</h2>
+                <h2>Asistente de Instalación, Actualización y Desinstalación (Wizard)</h2>
                 <span class="badge-pill badge-enviado" id="sys-version-pill">Versión instalada: v2.0.0</span>
               </div>
               <p class="system-desc">
-                Para actualizar la aplicación cuando publiques una nueva versión (<code>CafePalMonte_Setup_v2.x.x.exe</code>), puedes ejecutar directamente el instalador o cargarlo desde aquí. También puedes iniciar el Wizard de desinstalación de Windows conservando intacta tu base de datos de pedidos.
+                Instala o actualiza la aplicación en tu equipo con el Wizard integrado (compatible con el Control Inteligente de Aplicaciones de Windows 11), creando accesos directos en el Escritorio y Menú Inicio y conservando intacta tu base de datos de pedidos.
               </p>
               <div class="system-actions-row">
+                <button type="button" class="btn btn-cafeto" id="btn-open-setup-wizard">
+                  Abrir Wizard de Instalación / Actualización
+                </button>
                 <button type="button" class="btn btn-roast" id="btn-run-update-wizard">
-                  Instalar Actualización desde Archivo Setup (.exe)
+                  Cargar Paquete Setup Externo (.exe)
                 </button>
                 <button type="button" class="btn btn-outline" id="btn-check-github-updates">
                   Verificar estado de versión
@@ -834,6 +837,70 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-outline" id="btn-cancel-confirm">Cancelar</button>
         <button type="button" class="btn btn-danger" id="btn-accept-confirm">Sí, eliminar definitivamente</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       MODAL 4: WIZARD DE INSTALACIÓN, ACTUALIZACIÓN Y DESINSTALACIÓN
+       ========================================== -->
+  <div class="modal-backdrop hidden" id="setup-wizard-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="setup-wizard-title">
+    <div class="modal-card modal-wizard">
+      <div class="modal-header">
+        <h2 id="setup-wizard-title">Wizard de Instalación y Actualización · Café Pa'l Monte</h2>
+        <button type="button" class="modal-close-btn" id="btn-close-setup-wizard" aria-label="Cerrar asistente">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="system-desc" id="setup-wizard-subtitle">
+          Este asistente instala o actualiza <strong>Café Pa'l Monte v2.0.0</strong> directamente en tu perfil de Windows sin bloqueos del Control Inteligente de Aplicaciones, creando un respaldo automático de tus pedidos en SQLite.
+        </p>
+
+        <div class="form-field">
+          <label for="wizard-target-dir">Carpeta de instalación en Windows</label>
+          <div class="input-with-action">
+            <input
+              type="text"
+              id="wizard-target-dir"
+              class="input-control mono-input"
+              readonly
+            />
+            <button type="button" class="btn btn-sm btn-outline" id="btn-wizard-pick-dir">Cambiar...</button>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label class="checkbox-inline" for="chk-wizard-desktop">
+            <input type="checkbox" id="chk-wizard-desktop" checked />
+            <span>Crear acceso directo en el Escritorio (<strong>Cafe Pa'l Monte</strong>)</span>
+          </label>
+        </div>
+
+        <div class="form-field">
+          <label class="checkbox-inline" for="chk-wizard-startmenu">
+            <input type="checkbox" id="chk-wizard-startmenu" checked />
+            <span>Crear accesos directos en el Menú Inicio (Aplicación y Desinstalador)</span>
+          </label>
+        </div>
+
+        <div class="wizard-progress-box hidden" id="wizard-progress-wrap">
+          <div class="hbar-top">
+            <span class="hbar-name" id="wizard-progress-text">Preparando instalación...</span>
+            <span class="hbar-metric tabular" id="wizard-progress-pct">0%</span>
+          </div>
+          <div class="hbar-track">
+            <div class="hbar-fill" id="wizard-progress-bar" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div class="migration-preview-box hidden" id="wizard-result-box">
+          <h3 id="wizard-result-title">Instalación completada</h3>
+          <p id="wizard-result-details"></p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" id="btn-cancel-setup-wizard">Cerrar</button>
+        <button type="button" class="btn btn-danger" id="btn-wizard-uninstall-now">Desinstalar de este equipo</button>
+        <button type="button" class="btn btn-cafeto" id="btn-wizard-install-now">Instalar / Actualizar Ahora</button>
       </div>
     </div>
   </div>

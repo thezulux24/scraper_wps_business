@@ -24,6 +24,11 @@ const {
 const { OrderDatabase } = require('./database');
 const { ReportExporter } = require('./exporter');
 const { WhatsAppScraperManager } = require('./scraper');
+const {
+  getInstallStatus,
+  performInstallOrUpdate,
+  performUninstall,
+} = require('./installer-wizard');
 
 let mainWindow = null;
 let db = null;
@@ -190,6 +195,12 @@ function registerIpcHandlers() {
       knownLegacySources: knownSources.filter((k) => k && k.ok),
       connection: scraper.getStatusSnapshot(),
       logoDataUrl: readLogoDataUrl(),
+      installStatus: getInstallStatus(),
+      launchMode: process.argv.includes('--uninstall-wizard')
+        ? 'uninstall-wizard'
+        : process.argv.includes('--wizard')
+          ? 'install-wizard'
+          : 'normal',
     };
   });
 
@@ -442,47 +453,68 @@ function registerIpcHandlers() {
     return { ok: true, backupPath, launched: installerExe };
   });
 
-  ipcMain.handle('updater:runUninstaller', async () => {
-    const candidates = [
-      path.join(path.dirname(process.execPath), "Uninstall Cafe Pa'l Monte.exe"),
-      "C:\\Program Files\\cafe-pal-monte-desktop\\Uninstall Cafe Pa'l Monte.exe",
-      path.join(
-        process.env.LOCALAPPDATA || '',
-        'Programs',
-        'cafe-pal-monte-desktop',
-        "Uninstall Cafe Pa'l Monte.exe"
-      ),
-    ];
+  ipcMain.handle('wizard:getStatus', async () => {
+    return getInstallStatus();
+  });
 
-    const uninstallerExe = candidates.find((p) => p && fs.existsSync(p));
-    const backupPath = db.createBackup('pre_desinstalacion');
+  ipcMain.handle('wizard:pickFolder', async () => {
+    const status = getInstallStatus();
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Seleccionar carpeta donde instalar Café Pa\'l Monte',
+      defaultPath: status.installDir,
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (result.canceled || !result.filePaths.length) {
+      return { canceled: true };
+    }
+    return { canceled: false, folderPath: result.filePaths[0] };
+  });
 
-    if (!uninstallerExe) {
-      await shell.openExternal('ms-settings:appsfeatures');
+  ipcMain.handle('wizard:installOrUpdate', async (_e, opts = {}) => {
+    try {
+      const backupPath = db.createBackup('pre_instalacion_wizard');
+      const res = performInstallOrUpdate({
+        targetDir: opts.targetDir,
+        createDesktopShortcut: opts.createDesktopShortcut !== false,
+        createStartMenuShortcut: opts.createStartMenuShortcut !== false,
+        version: app.getVersion(),
+        onProgress: (percent, stepText) => {
+          sendToRenderer('wizard:progress', { percent, stepText });
+        },
+      });
+      return {
+        ...res,
+        backupPath,
+        installStatus: getInstallStatus(),
+      };
+    } catch (err) {
       return {
         ok: false,
-        openedSettings: true,
-        backupPath,
-        message:
-          'Se abrió el panel de Aplicaciones instaladas de Windows (y se creó un respaldo preventivo de orders.db).',
+        error: `No se pudo completar la instalación: ${err.message}`,
       };
     }
+  });
 
+  ipcMain.handle('updater:runUninstaller', async (_e, opts = {}) => {
+    const backupPath = db.createBackup('pre_desinstalacion');
     if (scraper) {
-      await scraper.disconnect();
+      try {
+        await scraper.disconnect();
+      } catch (_) {}
     }
 
-    const child = spawn(uninstallerExe, [], {
-      detached: true,
-      stdio: 'ignore',
+    const res = performUninstall({
+      targetDir: opts.targetDir,
     });
-    child.unref();
 
     setTimeout(() => {
       app.quit();
-    }, 450);
+    }, 550);
 
-    return { ok: true, backupPath, launched: uninstallerExe };
+    return {
+      ...res,
+      backupPath,
+    };
   });
 }
 
