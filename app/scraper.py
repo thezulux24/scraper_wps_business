@@ -82,7 +82,10 @@ const done = arguments[arguments.length - 1];
         const v = cur.value;
         if (v.type === 'interactive' &&
             (v.nativeFlowName === 'order_details' || v.nativeFlowName === 'order_status')) {
-          const peer = v.id.startsWith('true_') ? v.to : v.from;
+          // El id del mensaje lleva el chat ("true_<chat>_<id>"), que ya viene
+          // como LID; v.to/v.from en pedidos antiguos traen el número (@c.us).
+          const idChat = (/^(?:true|false)_([^_]+@[^_]+)_/.exec(String(v.id)) || [])[1];
+          const peer = idChat || (v.id.startsWith('true_') ? v.to : v.from);
           const rec = {
             t: v.t,
             peer: peer && (peer._serialized || peer),
@@ -99,10 +102,17 @@ const done = arguments[arguments.length - 1];
       r.onsuccess = () => ok(r.result || null);
       r.onerror = () => ok(null);
     });
+    // Los contactos se guardan por LID; un id @c.us se busca por su número.
+    const byPhone = pn => new Promise(ok => {
+      const r = tx.objectStore('contact').index('phoneNumber').get(pn);
+      r.onsuccess = () => ok(r.result || null);
+      r.onerror = () => ok(null);
+    });
     const names = {};
     for (const d of details) {
       if (!d.peer || d.peer in names) continue;
-      const ct = await get('contact', d.peer);
+      const ct = (await get('contact', d.peer)) ||
+                 (d.peer.endsWith('@c.us') ? await byPhone(d.peer).catch(() => null) : null);
       const ch = await get('chat', d.peer);
       names[d.peer] = (ct && (ct.name || ct.verifiedName || ct.pushname || ct.username)) ||
                       (ch && ch.name) ||
