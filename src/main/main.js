@@ -36,17 +36,21 @@ let exporter = null;
 let scraper = null;
 let autoMigrationSummary = null;
 
-const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) {
-  app.quit();
-} else {
-  app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
-  });
-}
+// Usar una carpeta de perfil limpia y con permisos garantizados del usuario actual
+// para evitar errores de bloqueo de cache (0x5) o lockfile (Error code 32) en Windows.
+try {
+  const userProfileDir = path.join(DATA_DIR, 'app_profile');
+  fs.mkdirSync(userProfileDir, { recursive: true });
+  app.setPath('userData', userProfileDir);
+} catch (_) {}
+
+app.on('second-instance', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
 
 function sendToRenderer(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -67,13 +71,15 @@ function readLogoDataUrl() {
 
 function createWindow() {
   const iconPath = getAssetPath('app.ico');
+  const validIcon = iconPath && fs.existsSync(iconPath) ? iconPath : undefined;
   mainWindow = new BrowserWindow({
     width: 1360,
     height: 860,
     minWidth: 1024,
     minHeight: 680,
+    show: false,
     title: "Café Pa'l Monte · Gestión de Pedidos",
-    icon: iconPath && fs.existsSync(iconPath) ? iconPath : undefined,
+    icon: validIcon,
     backgroundColor: '#F4ECE0',
     autoHideMenuBar: true,
     webPreferences: {
@@ -81,6 +87,18 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+
+  if (validIcon && typeof mainWindow.setIcon === 'function') {
+    try {
+      mainWindow.setIcon(validIcon);
+    } catch (_) {}
+  }
+
+  mainWindow.once('ready-to-show', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.show();
+    mainWindow.focus();
   });
 
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));

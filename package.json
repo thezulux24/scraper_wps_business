@@ -16,6 +16,7 @@
     "appId": "com.cafepalmonte.ordermanager",
     "productName": "Cafe Pa'l Monte",
     "copyright": "Copyright © 2026 Cafe Pa'l Monte",
+    "afterPack": "scripts/after-pack.js",
     "asar": true,
     "files": [
       "src/**/*",

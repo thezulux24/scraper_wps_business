@@ -136,11 +136,14 @@ function performInstallOrUpdate({
 
   const desktopShortcutPath = path.join(desktopDir, "Cafe Pa'l Monte.lnk");
   if (createDesktopShortcut) {
+    try {
+      if (fs.existsSync(desktopShortcutPath)) fs.unlinkSync(desktopShortcutPath);
+    } catch (_) {}
     createWindowsShortcut({
       shortcutPath: desktopShortcutPath,
       targetPath: installedExe,
       workingDir: destRoot,
-      iconPath: fs.existsSync(destIcon) ? destIcon : installedExe,
+      iconPath: fs.existsSync(destIcon) ? `${destIcon},0` : `${installedExe},0`,
       description: "Café Pa'l Monte · Gestión de Pedidos y Analítica",
     });
   }
@@ -151,7 +154,7 @@ function performInstallOrUpdate({
       shortcutPath: path.join(startMenuAppFolder, "Cafe Pa'l Monte.lnk"),
       targetPath: installedExe,
       workingDir: destRoot,
-      iconPath: fs.existsSync(destIcon) ? destIcon : installedExe,
+      iconPath: fs.existsSync(destIcon) ? `${destIcon},0` : `${installedExe},0`,
       description: "Café Pa'l Monte · Gestión de Pedidos y Analítica",
     });
     createWindowsShortcut({
@@ -159,10 +162,14 @@ function performInstallOrUpdate({
       targetPath: installedExe,
       argumentsStr: '--uninstall-wizard',
       workingDir: destRoot,
-      iconPath: fs.existsSync(destIcon) ? destIcon : installedExe,
+      iconPath: fs.existsSync(destIcon) ? `${destIcon},0` : `${installedExe},0`,
       description: "Abrir Wizard de desinstalación de Café Pa'l Monte",
     });
   }
+
+  try {
+    execFileSync('ie4uinit.exe', ['-show'], { windowsHide: true });
+  } catch (_) {}
 
   onProgress(90, 'Registrando en Aplicaciones instaladas de Windows...');
   try {

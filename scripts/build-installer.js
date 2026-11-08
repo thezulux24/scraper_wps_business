@@ -2,8 +2,8 @@
  * Prepara y ejecuta el empaquetado de escritorio en Windows:
  * 1. Corrige el bug de prefijos de carpetas en app-builder.exe --flatten (ej. call-bind vs call-bind-apply-helpers).
  * 2. Extrae el desinstalador NSIS en memoria sin bloquear archivos en dist.
- * 3. Restaura el binario oficial inalterado de electron.exe en dist/win-unpacked/Cafe Pa'l Monte.exe
- *    para garantizar compatibilidad 100% con el Control Inteligente de Aplicaciones de Windows 11.
+ * 3. Coloca el binario limpio de electron.exe con el icono oficial app.ico incrustado via rcedit
+ *    (sin el recurso asarIntegrity que dispara bloqueos en Windows 11).
  * 4. Genera los lanzadores directos del Wizard de instalacion/actualizacion y desinstalacion en dist/.
  */
 const fs = require('node:fs');
@@ -111,18 +111,46 @@ if ((res.status ?? 0) !== 0) {
   process.exit(res.status ?? 1);
 }
 
-// Restaurar el binario oficial de electron.exe (reconocido por Smart App Control de Windows 11)
+// Reemplazar por el binario de electron.exe sin asarIntegrity e incrustar el icono oficial app.ico
 const officialElectronExe = path.join(rootDir, 'node_modules', 'electron', 'dist', 'electron.exe');
 const unpackedDir = path.join(rootDir, 'dist', 'win-unpacked');
 const unpackedExe = path.join(unpackedDir, "Cafe Pa'l Monte.exe");
 const appIco = path.join(rootDir, 'app', 'assets', 'app.ico');
+const rceditPath = path.join(
+  process.env.LOCALAPPDATA || '',
+  'electron-builder',
+  'Cache',
+  'winCodeSign',
+  'winCodeSign-2.6.0',
+  'rcedit-x64.exe'
+);
 
 if (fs.existsSync(officialElectronExe) && fs.existsSync(unpackedDir)) {
   fs.copyFileSync(officialElectronExe, unpackedExe);
   if (fs.existsSync(appIco)) {
     fs.copyFileSync(appIco, path.join(unpackedDir, 'app.ico'));
+    if (fs.existsSync(rceditPath)) {
+      spawnSync(
+        rceditPath,
+        [
+          unpackedExe,
+          '--set-icon',
+          appIco,
+          '--set-version-string',
+          'ProductName',
+          "Cafe Pa'l Monte",
+          '--set-version-string',
+          'FileDescription',
+          "Cafe Pa'l Monte - Gestion de Pedidos",
+          '--set-version-string',
+          'CompanyName',
+          "Cafe Pa'l Monte",
+        ],
+        { stdio: 'inherit' }
+      );
+    }
   }
-  console.log('Binario oficial compatible con Smart App Control aplicado en:', unpackedExe);
+  console.log('Binario oficial con icono de Cafe Pa\'l Monte aplicado en:', unpackedExe);
 }
 
 // Crear lanzadores del Wizard compatibles con Smart App Control en dist/
